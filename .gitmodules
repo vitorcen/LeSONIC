@@ -1,0 +1,6 @@
+[submodule "dependencies/Isaac-GR00T"]
+	path = dependencies/Isaac-GR00T
+	url = https://github.com/NVIDIA/Isaac-GR00T.git
+[submodule "dependencies/GR00T-WholeBodyControl"]
+	path = dependencies/GR00T-WholeBodyControl
+	url = https://github.com/NVlabs/GR00T-WholeBodyControl

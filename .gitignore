@@ -1,0 +1,9 @@
+# runtime scratch (not part of the repo)
+datasets/
+outputs/
+logs/
+# python envs / caches (submodules build their own .venv)
+**/.venv*/
+**/__pycache__/
+*.pyc
+.cache/

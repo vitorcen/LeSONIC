@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GR00T-N1.7-G1-SONIC 三模型联合评审 + Roadmap</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 80px;
+    background: #ffffff; color: #1a1a1a;
+    font-family: -apple-system, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.7; font-size: 16px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 22px; }
+  header {
+    background: #0f172a; color: #f8fafc;
+    padding: 38px 0 30px; margin-bottom: 8px;
+    border-bottom: 4px solid #f97316;
+  }
+  header .wrap { color: #f8fafc; }
+  header h1 { margin: 0 0 6px; font-size: 26px; color: #ffffff; }
+  header .sub { color: #cbd5e1; font-size: 15px; margin: 0; }
+  header .meta { color: #94a3b8; font-size: 13px; margin-top: 14px; }
+  h2 {
+    font-size: 21px; margin: 40px 0 14px; padding-bottom: 8px;
+    border-bottom: 2px solid #e2e8f0; color: #0f172a;
+  }
+  h3 { font-size: 17px; margin: 26px 0 8px; color: #0f172a; }
+  p { margin: 10px 0; }
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    background: #f1f5f9; color: #b91c1c;
+    padding: 1px 5px; border-radius: 4px;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 13.5px;
+  }
+  pre {
+    background: #0f172a; color: #e2e8f0;
+    padding: 14px 16px; border-radius: 8px; overflow-x: auto;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 13px; line-height: 1.55;
+  }
+  pre code { background: transparent; color: #e2e8f0; padding: 0; }
+  table {
+    width: 100%; border-collapse: collapse; margin: 16px 0;
+    background: #ffffff; color: #1a1a1a; font-size: 14.5px;
+  }
+  th, td { border: 1px solid #d8dee9; padding: 8px 11px; text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; color: #0f172a; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .en { color: #475569; font-size: 13px; font-style: italic; }
+  .tldr {
+    background: #fff7ed; color: #1a1a1a;
+    border: 1px solid #fdba74; border-left: 5px solid #f97316;
+    padding: 16px 20px; border-radius: 8px; margin: 20px 0;
+  }
+  .crit {
+    background: #fef2f2; color: #1a1a1a;
+    border: 1px solid #fecaca; border-left: 5px solid #dc2626;
+    padding: 14px 18px; border-radius: 8px; margin: 18px 0;
+  }
+  .good {
+    background: #f0fdf4; color: #1a1a1a;
+    border: 1px solid #bbf7d0; border-left: 5px solid #16a34a;
+    padding: 14px 18px; border-radius: 8px; margin: 18px 0;
+  }
+  .note {
+    background: #eff6ff; color: #1a1a1a;
+    border: 1px solid #bfdbfe; border-left: 5px solid #3b82f6;
+    padding: 14px 18px; border-radius: 8px; margin: 18px 0;
+  }
+  .sev { font-weight: 700; padding: 1px 8px; border-radius: 999px; font-size: 12.5px; color: #fff; white-space: nowrap; }
+  .p0 { background: #dc2626; }
+  .p1 { background: #ea580c; }
+  .p2 { background: #ca8a04; }
+  .tag { display: inline-block; background: #e2e8f0; color: #334155; border-radius: 4px; padding: 0 7px; font-size: 12px; margin-right: 4px; }
+  .svgbox { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 18px 0; overflow-x: auto; }
+  .check { color: #16a34a; font-weight: 700; }
+  .cross { color: #dc2626; font-weight: 700; }
+  ul, ol { margin: 10px 0; padding-left: 26px; }
+  li { margin: 5px 0; }
+  .foot { color: #64748b; font-size: 13px; margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>GR00T-N1.7 × GEAR-SONIC — 三模型联合评审 + Roadmap</h1>
+    <p class="sub">Three-model adversarial review of <code style="background:#1e293b;color:#fca5a5;">wsagi/GR00T-N1.7-G1-SONIC</code> · prompt 驱动全身动作的下一步</p>
+    <p class="meta">评审：Claude Opus 4.8 · OpenAI GPT-5.5 (codex) · Xiaomi MiMo-v2.5-pro &nbsp;|&nbsp; 2026-06-08 &nbsp;|&nbsp; 架构侧 GR00T×SONIC-WBC 路线</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="tldr">
+<strong>TL;DR.</strong> 三个模型独立评审高度收敛：这是一个<strong>诚实、scope 写得到位的 proof-of-concept</strong>，但<strong>三座架构山</strong>不搬，数据再多也只是背更多轨迹——<strong>① 无记忆单帧策略</strong>做不了闭环时序动作、<strong>② 把离散 FSQ 码当连续回归</strong>、<strong>③ ego 相机看地面</strong>视觉近乎无效。最响亮的指标 <code>MSE=0.0011</code> 是 7 条轨迹无 held-out 的<strong>记忆误差，不是泛化</strong>。
+<br><span class="en">Honest POC with accurate scope, but three architectural blockers (memoryless policy · continuous-regression of discrete FSQ codes · ground-facing ego cam) cap it at trajectory memorization. The headline MSE is train-set reconstruction, not generalization.</span>
+<br><br><strong>正序修复</strong>：先改 loss（最便宜、最高 ROI）→ 加 history/phase 治记忆 → 扩数据 → 闭环训练 → 实时 prompt。<strong>别先堆数据或堆步数。</strong>
+</div>
+
+<h2>0 · 评审方法 / Method</h2>
+<p>同一份事实简报喂给三个模型，各自独立产出批判 + roadmap，再交叉合并。三方<strong>独立命中同一问题</strong>视为强信号；单方独有视为补充视角；分歧处给出工程裁决。<span class="en">Same fact-brief → three independent critiques → cross-merge. Convergence = strong signal; singletons = supplementary; disagreements adjudicated.</span></p>
+
+<h2>1 · 三方共识缺陷（按严重度）/ Consensus defects</h2>
+<table>
+<thead><tr><th>#</th><th>缺陷 / Defect</th><th>Opus</th><th>codex</th><th>mimo</th><th>严重度</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>无 held-out</strong>：7 轨迹×1ep，<code>MSE 0.0011</code> 是背训练集，不证明泛化。per-motion-mean 基线对 7-way 本就 trivial<br><span class="en">No held-out split — headline metric is memorization</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p0">P0</span></td></tr>
+<tr><td>2</td><td><strong>FSQ 离散码当连续回归</strong>：每维 16 级离散，用 MSE/flow 回归→落网格之间 decode 行为未定义。应 per-dim 交叉熵 或 pre-quant latent 过 quantizer<br><span class="en">Regressing discrete codes — should be per-dim classification or pre-quant latent</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p0">P0</span></td></tr>
+<tr><td>3</td><td><strong>无记忆单帧策略 × 闭环 = 本质缺陷</strong>：单帧 obs→40-step chunk，无 history/phase，无法从静止自启 kick/walk。bootstrap 是续播拐杖，不是 prompt 驱动<br><span class="en">Memoryless single-frame policy can't bootstrap one-shot motions — architectural, not a tuning issue</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p0">P0</span></td></tr>
+<tr><td>4</td><td><strong>不摔 ≠ VLA 的功劳</strong>：pelvis 稳是 SONIC WBC 托底，贡献未解耦。需 ablation 拆清<br><span class="en">Stability is the WBC's, not the VLA's — needs ablation</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p1">P1</span></td></tr>
+<tr><td>5</td><td><strong>ego 相机看地面</strong>：attach pelvis 朝前，看不到自己肢体，对跳舞视觉信号≈0。架构图把 ego cam 画在输入端有夸大之嫌<br><span class="en">Ground-facing ego cam contributes ~0 visual signal</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p1">P1</span></td></tr>
+<tr><td>6</td><td><strong>scope/标题 oversold</strong>：「prompt-conditioned whole-body motion」听着像通用能力；实为 7 条记忆轨迹 + WBC 托底。kick/walk 用了 bootstrap 仍列入 demonstrated<br><span class="en">Title oversells; bootstrap-only motions counted as demonstrated</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p1">P1</span></td></tr>
+<tr><td>7</td><td><strong>F32 标注 vs bf16 训练</strong>：HF 显示 F32，3 shard ~12G（3B 模型偏大）。要么 save 上转浪费 2× 体积，要么 metadata 错，误导下游以为需 fp32 推理<br><span class="en">F32 tag vs bf16 training — wasted size or wrong metadata</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p1">P1</span></td></tr>
+<tr><td>8</td><td><strong>依赖外部 WBC + ZMQ 跨进程</strong>：transformers 版本冲突→不能同进程。复现需 WBC ckpt 版本/commit/env/wire schema/eval harness，门槛高<br><span class="en">External WBC + cross-proc ZMQ — high reproduction barrier</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p1">P1</span></td></tr>
+<tr><td>9</td><td><strong>数据太小太单一</strong>：3815 帧、动作 1ep、无速度/幅度/起始相位变化。不是 few-shot，是 zero-shot memorization。1.62B 可训参数远超数据支撑<br><span class="en">3815 frames, 1 ep/motion — zero-shot memorization, params ≫ data</span></td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td><td><span class="sev p1">P1</span></td></tr>
+<tr><td>10</td><td><strong>checkpoint-8000 选点无依据</strong>：无 validation curve，8000 是盲选<br><span class="en">No val curve → checkpoint pick is blind</span></td><td class="check">✓</td><td></td><td class="check">✓</td><td><span class="sev p2">P2</span></td></tr>
+</tbody>
+</table>
+
+<div class="crit">
+<strong>🔴 单方最尖锐补充（Opus，另两方未拿到细节）：「不摔 ~0.79m」很可能是 <code>RELAX=1</code> / <code>threshold=99</code> 放宽终止下测的。</strong><br>
+闭环 demo 用了 <code>++manager_env.terminations.{anchor_pos,ee_body_pos,anchor_ori_full,foot_pos_xyz}.params.threshold=99</code> 把摔倒/漂移终止条件几乎关掉。如果「pelvis 稳定不摔」是在<strong>终止检测被关闭</strong>的前提下统计的，那这条声明等于<strong>把判据本身关掉再说自己过了判据</strong>——是 confound，不是结论。<strong>页面必须标注每条 demo 是否 RELAX</strong>，并在严格终止下重测「不摔」。
+<br><span class="en">The "stays upright" claim was likely measured with termination thresholds relaxed to 99 (fall detection effectively off). Disabling the criterion then claiming you pass it is a confound. Each demo must state whether RELAX was on; re-measure under strict termination.</span>
+</div>
+
+<h2>2 · 问题落在数据流的哪里 / Where the defects sit</h2>
+<div class="svgbox">
+<svg viewBox="0 0 920 340" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <rect x="0" y="0" width="920" height="340" fill="#ffffff"/>
+  <!-- inputs -->
+  <rect x="20" y="40" width="150" height="44" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="95" y="60" text-anchor="middle" font-size="13" fill="#7f1d1d">ego cam (看地面)</text>
+  <text x="95" y="76" text-anchor="middle" font-size="11" fill="#b91c1c">视觉≈0 · 缺#5</text>
+
+  <rect x="20" y="100" width="150" height="44" rx="6" fill="#fef9c3" stroke="#ca8a04"/>
+  <text x="95" y="120" text-anchor="middle" font-size="13" fill="#713f12">proprio (单帧)</text>
+  <text x="95" y="136" text-anchor="middle" font-size="11" fill="#854d0e">无 history/phase</text>
+
+  <rect x="20" y="160" width="150" height="44" rx="6" fill="#fef9c3" stroke="#ca8a04"/>
+  <text x="95" y="180" text-anchor="middle" font-size="13" fill="#713f12">prompt (静态)</text>
+  <text x="95" y="196" text-anchor="middle" font-size="11" fill="#854d0e">L2≈3-5 &lt; 姿态11.8</text>
+
+  <!-- GR00T -->
+  <rect x="250" y="90" width="170" height="80" rx="8" fill="#e0e7ff" stroke="#4338ca"/>
+  <text x="335" y="120" text-anchor="middle" font-size="14" fill="#312e81" font-weight="bold">GR00T N1.7</text>
+  <text x="335" y="138" text-anchor="middle" font-size="11" fill="#3730a3">冻 VLM · 训 DiT head</text>
+  <text x="335" y="154" text-anchor="middle" font-size="11" fill="#3730a3">单帧→无记忆 · 缺#3</text>
+
+  <!-- token -->
+  <rect x="480" y="95" width="150" height="70" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="555" y="122" text-anchor="middle" font-size="13" fill="#7f1d1d" font-weight="bold">64-d FSQ token</text>
+  <text x="555" y="140" text-anchor="middle" font-size="11" fill="#b91c1c">离散码当连续回归</text>
+  <text x="555" y="155" text-anchor="middle" font-size="11" fill="#b91c1c">缺#2</text>
+
+  <!-- WBC -->
+  <rect x="700" y="90" width="170" height="80" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="785" y="118" text-anchor="middle" font-size="14" fill="#14532d" font-weight="bold">SONIC WBC</text>
+  <text x="785" y="136" text-anchor="middle" font-size="11" fill="#166534">平衡托底 (50Hz)</text>
+  <text x="785" y="152" text-anchor="middle" font-size="11" fill="#166534">「不摔」是它·#4</text>
+
+  <!-- arrows -->
+  <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#475569"/></marker></defs>
+  <line x1="170" y1="62" x2="248" y2="110" stroke="#475569" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="170" y1="122" x2="248" y2="125" stroke="#475569" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="170" y1="182" x2="248" y2="145" stroke="#475569" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="420" y1="130" x2="478" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="630" y1="130" x2="698" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="664" y="122" text-anchor="middle" font-size="10" fill="#64748b">ZMQ #8</text>
+
+  <!-- output -->
+  <rect x="700" y="210" width="170" height="40" rx="6" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="785" y="235" text-anchor="middle" font-size="12" fill="#334155">29-DoF G1 关节</text>
+  <line x1="785" y1="170" x2="785" y2="208" stroke="#475569" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- eval note -->
+  <rect x="250" y="260" width="380" height="56" rx="6" fill="#fff7ed" stroke="#f97316"/>
+  <text x="440" y="282" text-anchor="middle" font-size="12" fill="#9a3412" font-weight="bold">eval: MSE=0.0011 在 7 训练轨迹上无 held-out (#1)</text>
+  <text x="440" y="300" text-anchor="middle" font-size="11" fill="#c2410c">「不摔」疑在 RELAX 放宽终止下测 — confound</text>
+</svg>
+</div>
+
+<h2>3 · 三方分歧与裁决 / Disagreements adjudicated</h2>
+<table>
+<thead><tr><th>议题</th><th>分歧</th><th>工程裁决</th></tr></thead>
+<tbody>
+<tr><td>ZMQ 跨进程</td><td>mimo 主张「去 ZMQ、SONIC decode 写成 torch module 同进程，版本冲突用 monkey-patch」；Opus/codex 认为版本冲突（transformers 4.57 vs SONIC trl 栈）是硬约束</td><td><strong>保留 ZMQ，但文档化</strong>（wire schema + env lockfile + commit）。同进程 ROI 低、风险高，不值得为它停泛化主线。mimo 低估了冲突的根深</td></tr>
+<tr><td>loss 改造优先级</td><td>mimo：「改 per-dim 交叉熵这一个改动可能比训 10× 数据更有用」；codex/Opus 同意但并列在 roadmap 中</td><td><strong>采纳 mimo 排序</strong>：loss 是 P0 第一刀，最便宜、不依赖新数据、直接攻 #2。先做</td></tr>
+<tr><td>视觉相机</td><td>mimo：换第三人称 或 干脆去掉 ego cam；Opus：第三人称会 train/deploy 失配（真机相机看世界）</td><td><strong>先做消融证明 ego 无用</strong>（vision-off vs vision-on MSE/闭环），再决定去留。盲删有风险，盲留浪费 compute</td></tr>
+</tbody>
+</table>
+
+<h2>4 · Roadmap — 让它真正「prompt 驱动更多动作」</h2>
+<p>泛化（新 prompt/新动作）+ 闭环稳 + 可实时下 prompt 三个目标，按 ROI 和依赖排序。<span class="en">Ordered by ROI and dependency, not by appeal.</span></p>
+
+<div class="svgbox">
+<svg viewBox="0 0 920 230" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <rect x="0" y="0" width="920" height="230" fill="#ffffff"/>
+  <!-- phases -->
+  <rect x="15" y="40" width="165" height="150" rx="8" fill="#fef2f2" stroke="#dc2626"/>
+  <text x="97" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#7f1d1d">P0 修地基</text>
+  <text x="97" y="80" text-anchor="middle" font-size="10.5" fill="#991b1b">1-2 周 · 不需新数据</text>
+  <text x="97" y="104" text-anchor="middle" font-size="11" fill="#1a1a1a">① loss→交叉熵</text>
+  <text x="97" y="124" text-anchor="middle" font-size="11" fill="#1a1a1a">② 加 held-out</text>
+  <text x="97" y="144" text-anchor="middle" font-size="11" fill="#1a1a1a">③ 修 F32→bf16</text>
+  <text x="97" y="164" text-anchor="middle" font-size="11" fill="#1a1a1a">④ 页面去 oversell</text>
+
+  <rect x="195" y="40" width="165" height="150" rx="8" fill="#fff7ed" stroke="#ea580c"/>
+  <text x="277" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#9a3412">P1 治记忆</text>
+  <text x="277" y="80" text-anchor="middle" font-size="10.5" fill="#c2410c">2-4 周</text>
+  <text x="277" y="104" text-anchor="middle" font-size="11" fill="#1a1a1a">⑤ obs history</text>
+  <text x="277" y="124" text-anchor="middle" font-size="11" fill="#1a1a1a">⑥ phase clock</text>
+  <text x="277" y="144" text-anchor="middle" font-size="11" fill="#1a1a1a">⑦ 去 bootstrap</text>
+  <text x="277" y="164" text-anchor="middle" font-size="11" fill="#1a1a1a">拐杖</text>
+
+  <rect x="375" y="40" width="165" height="150" rx="8" fill="#fefce8" stroke="#ca8a04"/>
+  <text x="457" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#713f12">P2 扩数据</text>
+  <text x="457" y="80" text-anchor="middle" font-size="10.5" fill="#854d0e">4-8 周</text>
+  <text x="457" y="104" text-anchor="middle" font-size="11" fill="#1a1a1a">⑧ 每动作 10-50ep</text>
+  <text x="457" y="124" text-anchor="middle" font-size="11" fill="#1a1a1a">⑨ held-out 新动作</text>
+  <text x="457" y="144" text-anchor="middle" font-size="11" fill="#1a1a1a">⑩ time/phase aug</text>
+  <text x="457" y="164" text-anchor="middle" font-size="11" fill="#1a1a1a">⑪ prompt paraphrase</text>
+
+  <rect x="555" y="40" width="165" height="150" rx="8" fill="#eff6ff" stroke="#3b82f6"/>
+  <text x="637" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e3a8a">P3 闭环</text>
+  <text x="637" y="80" text-anchor="middle" font-size="10.5" fill="#1d4ed8">与 P2 并行</text>
+  <text x="637" y="104" text-anchor="middle" font-size="11" fill="#1a1a1a">⑫ scheduled</text>
+  <text x="637" y="122" text-anchor="middle" font-size="11" fill="#1a1a1a">sampling/DAgger</text>
+  <text x="637" y="144" text-anchor="middle" font-size="11" fill="#1a1a1a">⑬ ablation 矩阵</text>
+  <text x="637" y="164" text-anchor="middle" font-size="11" fill="#1a1a1a">⑭ 严格终止重测</text>
+
+  <rect x="735" y="40" width="170" height="150" rx="8" fill="#f0fdf4" stroke="#16a34a"/>
+  <text x="820" y="62" text-anchor="middle" font-size="13" font-weight="bold" fill="#14532d">P4 实时</text>
+  <text x="820" y="80" text-anchor="middle" font-size="10.5" fill="#166534">长期 · 需泛化先成立</text>
+  <text x="820" y="104" text-anchor="middle" font-size="11" fill="#1a1a1a">⑮ prompt 切换数据</text>
+  <text x="820" y="124" text-anchor="middle" font-size="11" fill="#1a1a1a">⑯ live get_action</text>
+  <text x="820" y="144" text-anchor="middle" font-size="11" fill="#1a1a1a">⑰ 组合 prompt</text>
+  <text x="820" y="164" text-anchor="middle" font-size="11" fill="#1a1a1a">"squat while wave"</text>
+
+  <defs><marker id="ar2" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker></defs>
+  <line x1="180" y1="115" x2="193" y2="115" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar2)"/>
+  <line x1="360" y1="115" x2="373" y2="115" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar2)"/>
+  <line x1="540" y1="115" x2="553" y2="115" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar2)"/>
+  <line x1="720" y1="115" x2="733" y2="115" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar2)"/>
+</svg>
+</div>
+
+<h3>P0 · 修地基（1-2 周，零新数据，最高 ROI）</h3>
+<ol>
+<li><strong>改 loss 为 per-dim 交叉熵</strong>（mimo 排序）：64 维 FSQ token → 64 路 16-class CE，或预测 pre-quant 连续 latent 再过 SONIC 自己的 FSQ quantizer。报 token accuracy / codebook perplexity / invalid-code rate。<span class="en">Single highest-ROI change; attacks #2 without new data.</span></li>
+<li><strong>建 held-out split</strong>：留 1 个动作完全不训（如 kick）+ 其余每条留后半段/某些 phase 做 val。<strong>没有 held-out 就没有科学。</strong></li>
+<li><strong>F32→bf16</strong>：重存 bf16 safetensors 或修 metadata，体积减半，说明推理显存/dtype。</li>
+<li><strong>页面去 oversell</strong>：标题/首屏标「memorized 7-trajectory POC」；MSE 旁注「train-set, no held-out」；每条 demo 标是否 bootstrap / 是否 RELAX；「不摔」在严格终止下重测后再写。</li>
+</ol>
+
+<h3>P1 · 治记忆（2-4 周，攻 #3 架构山）</h3>
+<ol start="5">
+<li><strong>加 obs history</strong>：DiT head 接 N=4-8 帧 obs 窗（拼 token 序列，不必上 RNN）。这是 kick/walk 自启的唯一正道。</li>
+<li><strong>显式 phase/progress 输入</strong>：proprio 里加 episode 内归一化时间戳，或 prompt 含 phase hint。训练时 random phase reset，让「从静止启动」「中途切 prompt」进训练分布。</li>
+<li><strong>去 bootstrap 拐杖</strong>：⑤⑥ 成立后 kick/walk 应能无 bootstrap 自启，这是 #3 是否真解的判据。</li>
+</ol>
+
+<h3>P2 · 扩数据（4-8 周，真泛化的燃料）</h3>
+<ol start="8">
+<li><strong>每动作 10-50 episode</strong>：变速度/幅度/起始相位/扰动。当前 1ep = 硬编码一条轨迹。</li>
+<li><strong>held-out 新动作泛化测试</strong>：训 10 个 held-out 5 个，看 prompt 能否 zero-shot 选对——这才是 VLA 卖点。</li>
+<li><strong>数据增强</strong>：token 序列 time-warp（±20% 速度）/ phase shift / magnitude scale。</li>
+<li><strong>prompt paraphrase</strong>：同义改写测 token 是否稳定指向正确动作（数据多样性 ROI：prompt 侧 &gt; DR &gt; multi-clip，见项目记忆）。</li>
+</ol>
+
+<h3>P3 · 闭环 + 解耦（与 P2 并行）</h3>
+<ol start="12">
+<li><strong>闭环训练</strong>：别只 teacher-forcing MSE。scheduled sampling / DAgger / noise injection，让模型见到自己的偏差（codex）。</li>
+<li><strong>ablation 矩阵</strong>解耦 VLA vs WBC 贡献：WBC-replay / mean-token / prompt-shuffle / proprio-only / vision-off。证明视觉/prompt 真有贡献（codex），也据此决定 ego cam 去留。</li>
+<li><strong>严格终止下重测</strong>：关掉 RELAX，统计 fall rate / 存活时长 / phase error / 成功率（统一定义 + 多 seed + bootstrap/no-bootstrap 分开算）。</li>
+</ol>
+
+<h3>P4 · 实时 prompt（长期，依赖泛化先成立）</h3>
+<ol start="15">
+<li><strong>prompt transition 数据</strong>：录「dance→kick→walk」切换段，定义 latency budget，每 N step 更新语言条件。</li>
+<li><strong>live get_action 活循环</strong>（ZMQ 已通），交互式实时下 prompt。</li>
+<li><strong>组合 prompt</strong>：「squat while waving left hand」测 token 空间组合泛化——若平滑，才算真 VLA。</li>
+</ol>
+
+<div class="note">
+<strong>正序提醒 / Ordering.</strong> 三方一致：<strong>先 loss，再 history，然后数据</strong>。P0 的 held-out 是整条路的 go/no-go——若 held-out phase 都崩，P2/P3/P4 全是给查找表加表项，不值得投入。<span class="en">P0 held-out is the go/no-go gate; if it fails, everything downstream just enlarges the lookup table.</span>
+</div>
+
+<h2>5 · 该页面立刻可做的诚实化（不需训练）/ Immediate honesty fixes</h2>
+<div class="good">
+<ul>
+<li>标题/首屏：「<strong>POC: 7-trajectory memorization + SONIC WBC base</strong>」，把通用能力的暗示拿掉。</li>
+<li><code>MSE 0.0011</code> 改措辞为「<strong>train-set token reconstruction error (no held-out)</strong>」，并列出 per-motion-mean=0.039 是弱基线的事实。</li>
+<li>每条 demo 视频标注：<strong>bootstrap? RELAX(终止放宽)?</strong> kick/walk 明确写「需 bootstrap」。</li>
+<li>「pelvis 稳定不摔」：注明是否在 RELAX 下测；若是，<strong>撤下或严格终止重测后再写</strong>。</li>
+<li>修 <strong>F32→bf16</strong>，或在 card 注明 dtype/推理显存。</li>
+<li>补<strong>最小复现包</strong>：WBC ckpt 版本/commit、env lockfile、ZMQ wire schema、token 抽取脚本、eval/inject 命令、bootstrap 参数。当前更像研究草图而非可复现发布。</li>
+</ul>
+</div>
+
+<h2>6 · 公允评价 / Fair verdict</h2>
+<p>这套工作<strong>架构侧的去风险目标已达成</strong>：prompt→GR00T→token→SONIC decode→G1 端到端内存跑通（无 C++/ZMQ 阻塞主流程），注入接口验证 OK，模型在训练集内确实学会 (ego,prompt)→token 映射。<strong>页面的 limitations/scope 写得诚实</strong>，没有冒充通用 VLA。</p>
+<p>但<strong>把它当「成果」发布的成色，取决于能不能过 P0 的 held-out 与严格终止重测</strong>。当前最响亮的两个数字（MSE 0.0011、不摔 0.79m）一个是记忆误差、一个疑似 confound——这两条不澄清，页面的科学可信度会被懂行的人一眼看穿。<strong>先把页面诚实化（半天），再决定是否投 P0-P4。</strong></p>
+
+<p class="foot">
+评审：Claude Opus 4.8 · OpenAI GPT-5.5 (codex exec) · Xiaomi MiMo-v2.5-pro (opencode) &nbsp;|&nbsp; 2026-06-08<br>
+相关文档：<code>LeSONIC/doc/groot_sonic_wbc_route.html</code> · <code>LeSONIC/doc/sonic_vla_closeloop_validation.html</code> · <code>LeSONIC/doc/sonic_dance_motion_source.html</code><br>
+模型页：<a href="https://huggingface.co/wsagi/GR00T-N1.7-G1-SONIC">wsagi/GR00T-N1.7-G1-SONIC</a> · 数据集：<a href="https://huggingface.co/datasets/wsagi/SONIC-VLA-LeRobot">wsagi/SONIC-VLA-LeRobot</a>
+</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+diff --git a/gear_sonic/envs/wrapper/manager_env_wrapper.py b/gear_sonic/envs/wrapper/manager_env_wrapper.py
+index 506c1fc..fb9b20c 100644
+--- a/gear_sonic/envs/wrapper/manager_env_wrapper.py
++++ b/gear_sonic/envs/wrapper/manager_env_wrapper.py
+@@ -1050,6 +1050,30 @@ class ManagerEnvWrapper:
+             self.viewer_focused = False
+             logger.info("Switched to free camera mode")  # noqa: RUF100, T201
+ 
++    def snap_to_robot(self):
++        """Press C: jump the camera to a CLOSE over-the-shoulder view of env-0's robot.
++
++        Unlike F (a toggle that often lands in the far god-view), this always teleports the
++        viewport right next to the robot with the robot kept in frame — no mouse hunting. The
++        offset is tunable via env var SONIC_CAM_OFFSET="dx,dy,dz" (metres; default 1.8,1.8,1.2).
++        """
++        import os
++
++        try:
++            dx, dy, dz = (float(v) for v in os.environ.get("SONIC_CAM_OFFSET", "1.8,1.8,1.2").split(","))
++        except Exception:  # noqa: BLE001
++            dx, dy, dz = 1.8, 1.8, 1.2
++        root = self.env.scene["robot"].data.root_pos_w[0].cpu().numpy()
++        self.env.viewport_camera_controller.viewer_origin = torch.zeros_like(
++            self.env.scene["robot"].data.root_pos_w[0]
++        )
++        self.env.viewport_camera_controller.cfg.origin_type = "world"
++        self.env.viewport_camera_controller._env.sim.set_camera_view(  # noqa: SLF001
++            eye=root + np.array([dx, dy, dz]), target=root + np.array([0.0, 0.0, -0.1])
++        )
++        self.viewer_focused = False
++        logger.info(f"[cam] snapped close to robot (offset {dx},{dy},{dz})")  # noqa: T201
++
+     def set_is_training(self, **_kwargs):
+         self.is_evaluating = False
+         self.resample_motion()
+@@ -1093,6 +1117,7 @@ class ManagerEnvWrapper:
+             self.keyboard_interface.add_callback("R", self.reset_all)
+             self.keyboard_interface.add_callback("T", self.forward_motion_samples)
+             self.keyboard_interface.add_callback("F", self.focusing_viewer)
++            self.keyboard_interface.add_callback("C", self.snap_to_robot)
+             self.keyboard_interface.add_callback("V", self.toggle_debug_vis)
+         except Exception as e:  # noqa: BLE001
+             logger.info(f"Error setting up keyboard: {e}")  # noqa: RUF100, T201

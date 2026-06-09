@@ -1,9 +1,9 @@
 diff --git a/gear_sonic/data/vla_token_injector.py b/gear_sonic/data/vla_token_injector.py
 new file mode 100644
-index 0000000..0b0324b
+index 0000000..4e7533d
 --- /dev/null
 +++ b/gear_sonic/data/vla_token_injector.py
-@@ -0,0 +1,176 @@
+@@ -0,0 +1,186 @@
 +"""VLA token injector — eval-callback that DRIVES SONIC with GR00T's predicted tokens.
 +
 +Counterpart to vla_token_recorder: instead of READING the actor's token at decode, it
@@ -23,6 +23,8 @@ index 0000000..0b0324b
 +
 +from __future__ import annotations
 +
++import os
++
 +import numpy as np
 +
 +try:
@@ -31,6 +33,12 @@ index 0000000..0b0324b
 +    import logging
 +
 +    logger = logging.getLogger(__name__)
++
++# P0 #1: the dumped GR00T tokens are continuous flow-matching predictions, but the SONIC
++# decoder was trained on the FSQ-quantized (on-grid) token — 17 levels k/16, k in [-8, 8],
++# range [-0.5, 0.5]. Snap each predicted token onto that grid before injection. Disable
++# with SONIC_SNAP_GRID=0 to A/B against the raw continuous token. (Mirrors vla_live_injector.)
++_SNAP_FSQ = os.environ.get("SONIC_SNAP_GRID", "1") != "0"
 +
 +
 +class VlaTokenInjector:
@@ -60,6 +68,8 @@ index 0000000..0b0324b
 +        for p in paths:
 +            d = np.load(p, allow_pickle=True)
 +            t = np.asarray(d["motion_token"], dtype=np.float32)
++            if _SNAP_FSQ:
++                t = np.clip(np.round(t * 16.0) / 16.0, -0.5, 0.5).astype(np.float32)
 +            self._tokens_list.append(t)
 +            logger.info(
 +                f"[vla_injector] env slot {len(self._tokens_list)-1}: {t.shape} from {p} "

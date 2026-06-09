@@ -1,0 +1,35 @@
+diff --git a/gear_sonic/envs/manager_env/mdp/commands.py b/gear_sonic/envs/manager_env/mdp/commands.py
+index 529ff3c..7c71f12 100644
+--- a/gear_sonic/envs/manager_env/mdp/commands.py
++++ b/gear_sonic/envs/manager_env/mdp/commands.py
+@@ -3215,12 +3215,24 @@ class TrackingCommand(CommandTerm):
+                 self.motion_lib.update_adaptive_sampling(
+                     self._env.reset_terminated, self.motion_ids, cur_time_steps
+                 )
+-        self.time_steps += 1
+-        env_ids = torch.where(
+-            self.time_steps + self.motion_start_time_steps
+-            >= self.motion_lib.get_time_step_total(self.motion_ids)
+-        )[0]
+-        self._resample_command(env_ids)
++        # When the robot is driven by EXTERNALLY injected tokens (live VLA demo), the loaded
++        # reference is only env scaffolding. The clip-end wrap-around — _resample_command, which
++        # teleports the robot root back to the reference start (origin) via write_root_state_to_sim
++        # every time the clip ends (e.g. squat = 424 frames ~8.5s) — is the "flash back to origin":
++        # it fires OUTSIDE the termination/`dones` path and destroys the robot's ability to stay
++        # where the injected motion (walk) took it. SONIC_NO_REF_RESAMPLE=1 FREEZES the reference
++        # clock (don't advance, don't resample) so the boundary never fires and all reference
++        # indices stay at the (init-valid) frame. NB: looping the clock instead (time_steps reset)
++        # can drive time_steps negative under RSI -> bad reference frames -> NaN -> physics hang.
++        if os.environ.get("SONIC_NO_REF_RESAMPLE", "0") != "0":
++            pass  # freeze: reference is inert scaffolding; tokens drive the robot
++        else:
++            self.time_steps += 1
++            env_ids = torch.where(
++                self.time_steps + self.motion_start_time_steps
++                >= self.motion_lib.get_time_step_total(self.motion_ids)
++            )[0]
++            self._resample_command(env_ids)
+ 
+         # Exponential moving average update for running_ref_root_height.
+         # ZL this should be moved to the recorders???

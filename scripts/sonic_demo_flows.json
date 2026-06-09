@@ -1,0 +1,24 @@
+{
+  "_doc": "GR00T-SONIC demo flows. A flow is an ordered list of segments played as one looping live session (modulo loop, no GUI/server restart). Each segment: motion (one of dance|lunge|macarena|kick|squat|jump|walk), steps (control steps @50Hz, ~0.02s each), and optional full_bootstrap (replay the whole segment from the open-loop dump token instead of handing to live GR00T after the bootstrap window — used to make a one-shot locomotion clip play continuously, e.g. a walk-through between actions). Self-sustaining motions (squat/lunge/dance/macarena) run pure live; one-shot motions (kick/walk/jump) get a bootstrap window by default, or full_bootstrap for continuous playback.",
+
+  "flow1": {
+    "desc": "Discrete actions, equal time, looping. All self-sustaining (pure live GR00T, no bootstrap).",
+    "segments": [
+      {"motion": "squat",    "steps": 200},
+      {"motion": "lunge",    "steps": 200},
+      {"motion": "macarena", "steps": 200}
+    ]
+  },
+
+  "flow2": {
+    "desc": "Action -> walk-through -> action -> walk-through ... interleaved locomotion, looping. Actions are live GR00T; walk segments are continuous (full_bootstrap replay of the walk-and-turn clip).",
+    "segments": [
+      {"motion": "squat",    "steps": 160},
+      {"motion": "walk",     "steps": 240, "full_bootstrap": true},
+      {"motion": "macarena", "steps": 200},
+      {"motion": "walk",     "steps": 240, "full_bootstrap": true},
+      {"motion": "lunge",    "steps": 160},
+      {"motion": "walk",     "steps": 240, "full_bootstrap": true}
+    ]
+  }
+}

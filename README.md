@@ -7,6 +7,17 @@ SONIC WBC 当现成「平衡底座」把 token 解码成 29-DoF 关节动作。G
 > `prompt + ego-cam + proprio → GR00T N1.7 →(ZMQ)→ 64-d token → SONIC.decode(50Hz) → 29-DoF G1`
 > _One prompt-conditioned model, skills live in the **token space** — not behavior-cloned per joint._
 
+## 🎬 演示 · 动作串联 / Demo — action sequencing
+
+一句话**按时序切换 prompt**，G1 在**一个运行会话**里连贯做 蹲 → 走 → 跳舞 → … 并循环，**不重启 GUI/server**，
+**走到新位置就在那里作下一个动作**。这是对记忆动作的 **prompt 编排**，非复合指令理解。
+_Prompt switched over time → the G1 chains motions and loops in one live session; it walks to a new spot and performs the next action there._
+
+https://github.com/user-attachments/assets/8f212cba-f8f0-46bc-8483-cf5d704e2bce
+
+> 原理 + 三时钟调试（`_resample_command` 在 clip 边界硬传送机器人绕过 `dones`）+ `SONIC_NO_REF_RESAMPLE` freeze 修复：
+> [`doc/sonic_action_sequencing.html`](doc/sonic_action_sequencing.html)。跑法 `bash scripts/gear_sonic_live_demo.sh @flow2`（`list`/`@flow1`/即兴序列）。
+
 ## 🤗 发布物 / Published
 
 | | |
@@ -36,6 +47,8 @@ LeSONIC/
 │   ├─ gr00t_resume_heal.sh         # 自愈 resume（删损坏 ckpt + 续训，扛 mid-save 崩）
 │   ├─ gr00t_keep_stage_ckpts.sh    # 阶段 ckpt hardlink 进 keep/（防 HF 滚删，零额外磁盘）
 │   ├─ gr00t_ckpt_intact.py         # 校验 safetensors 完整（resume 用）
+│   ├─ gr00t_resave_bf16.py         # P0#3 fp32→bf16 重存（纯 CPU，12.6→6.3G）
+│   ├─ make_holdout_split.py        # P0#2 leave-one-motion-out held-out split（go/no-go 闸门）
 │   ├─ apply_gear_sonic_patches.sh  # 幂等 apply WBC 补丁
 │   └─ apply_gr00t_n17_patches.sh   # 幂等 apply Isaac-GR00T 补丁
 ├─ patches/
@@ -79,5 +92,15 @@ RELAX=0 bash LeSONIC/scripts/gear_sonic_live.sh macarena    # 严格终止（真
 - **「不摔」≠ VLA 功劳**：是 SONIC WBC 托底；demo 在 RELAX=1（终止关闭）下录。
 - **FSQ 离散码当连续回归** / **ego 相机看地面视觉弱** / **依赖外部 WBC + ZMQ 跨进程**。
 
-下一步（P0）：改 loss（per-dim CE / pre-quant latent）· 建 held-out split · F32→bf16 · 页面诚实化。
+### P0 进度（2026-06-08）
+
+| # | 修复 | 状态 |
+|---|---|---|
+| #3 | F32→bf16 重存（12.6→6.3G） | ✅ 完成 `scripts/gr00t_resave_bf16.py` → `outputs/gr00t_sonic_8k_bf16/`（待上传） |
+| #1 | FSQ snap-to-grid（推理侧，免重训） | ✅ 完成 两 injector + patch，env `SONIC_SNAP_GRID`（默认开）；实测 GR00T 预测 **60% 维度 off-grid、值域出 [-0.5,0.5] 界**，snap 把它拉回 decoder 唯一见过的网格。**闭环增益待 GPU A/B** |
+| #2 | held-out split（go/no-go 闸门） | ✅ 切分工具完成 `scripts/make_holdout_split.py`（LOMO，已验证）；**重训+held-out eval 待 GPU** |
+| #1' | loss 改 per-dim CE（训练侧） | ⏳ 需重训（GPU）；snap 是其推理侧近似 |
+| #4 | 页面诚实化 | 📝 草稿就绪 `/tmp/sonic_card_revised.md`，**待确认上传 HF** |
+
+> snap-to-grid 用法：`SONIC_SNAP_GRID=0 bash scripts/gear_sonic_live.sh macarena` 关闭以做 A/B 对照。
 完整 roadmap 见 `doc/sonic_vla_critique_roadmap.html`。

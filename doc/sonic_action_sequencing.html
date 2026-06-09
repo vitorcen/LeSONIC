@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>动作串联：一句话时序驱动 GR00T×SONIC 连贯动作 (Action Sequencing)</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #fafafa;
+  --fg: #1a1a1a;
+  --muted: #555;
+  --border: #d4d4d4;
+  --accent: #76b900;
+  --accent-dark: #4a7400;
+  --code-bg: #f1f3f4;
+  --table-head: #f0f5e8;
+  --warn: #b35900;
+  --blue: #2b6cb0;
+  --red: #c0392b;
+}
+* { box-sizing: border-box; }
+html { background: #fff; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.65;
+}
+.container { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
+header { border-bottom: 3px solid var(--accent); padding-bottom: 16px; margin-bottom: 28px; }
+header .tag { display: inline-block; background: var(--accent); color: #fff; padding: 2px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+h1 { font-size: 26px; margin: 4px 0 8px; }
+header .sub { color: var(--muted); font-size: 14px; }
+h2 { font-size: 21px; margin: 38px 0 12px; padding-left: 10px; border-left: 4px solid var(--accent); }
+h3 { font-size: 16px; margin: 22px 0 8px; color: var(--accent-dark); }
+p, li, td, th { font-size: 14.5px; }
+code { background: var(--code-bg); color: #1a1a1a; padding: 2px 6px; border-radius: 3px; font-family: "SFMono-Regular", Consolas, Menlo, monospace; font-size: 13px; }
+pre { background: var(--code-bg); color: #1a1a1a; border: 1px solid var(--border); border-radius: 4px; padding: 12px 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+pre code { background: transparent; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0; background: #fff; color: var(--fg); }
+th, td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: var(--table-head); font-weight: 600; }
+.tldr { background: #f0f5e8; border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: 4px; padding: 14px 18px; margin: 18px 0; }
+.warn { background: #fff6ec; border: 1px solid var(--warn); border-left: 4px solid var(--warn); border-radius: 4px; padding: 12px 16px; margin: 16px 0; }
+.bad { background: #fdecea; border: 1px solid var(--red); border-left: 4px solid var(--red); border-radius: 4px; padding: 12px 16px; margin: 16px 0; }
+.en { color: var(--muted); font-style: italic; font-size: 13.5px; }
+.fig { background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 14px; margin: 18px 0; text-align: center; }
+.fig svg { background: #fff; }
+.fig figcaption { color: var(--muted); font-size: 13px; margin-top: 8px; }
+ul, ol { padding-left: 22px; }
+li { margin: 4px 0; }
+.k { color: var(--accent-dark); font-weight: 600; }
+.x { color: var(--red); font-weight: 600; }
+.ok { color: var(--accent-dark); font-weight: 600; }
+hr { border: none; border-top: 1px solid var(--border); margin: 30px 0; }
+.small { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <span class="tag">LeSONIC · 架构侧 / Architecture route</span>
+  <h1>动作串联：一句话时序驱动连贯动作</h1>
+  <div class="sub">Action Sequencing — prompt-time-sequenced motion chaining over one live GR00T × SONIC session · 2026-06-09</div>
+</header>
+
+<div class="tldr">
+<strong>TL;DR</strong> — 一个运行中的 Isaac 会话里,<strong>按时序切换 prompt</strong>,让 G1 连贯地做 蹲→走→踢→… 并循环,全程<strong>不重启 GUI / 不重启 GR00T server</strong>。机器人<strong>走到新位置就在那里做下一个动作</strong>。
+<br><span class="en">One live session; the prompt is switched over time so the robot chains motions and loops, with no GUI/server restart. The robot walks to a new spot and performs the next action there.</span>
+<br><br>
+<strong>关键认知 / Key insight</strong>:这是对一个<strong>记忆了 7 个动作</strong>的模型做 <strong>prompt 编排 (orchestration)</strong>,不是复合指令理解;真正的难点不在"串联",而在调试过程暴露的 <strong>三个独立时钟</strong>(见 §4)。
+</div>
+
+<h2>1 · 它是什么 / What it is</h2>
+<p>
+底层架构沿用<a href="groot_sonic_wbc_route.html">架构侧路线</a>:GR00T N1.7 VLA 只吐 SONIC 的 64 维 FSQ <code>motion_token</code>,注入器 hook 住 <code>actor_module.decode("g1_dyn", …)</code> 用外部 token 覆盖,冻结的 SONIC WBC 把 token 解码成 G1 关节、负责平衡。<strong>动作串联</strong>在此之上加一层:把一串 prompt 段排成<strong>时间线</strong>,在<strong>同一个 live 会话</strong>里随时间切换。
+</p>
+<p>
+能成立的底层支撑(实锤):<strong>GR00T server 无状态</strong>,prompt 每次 query 放在 observation 的 <code>language</code> 里发 → 运行中改 <code>self.prompt</code>,下一次推理就切,<strong>server / GUI 都不用重启</strong>。
+<br><span class="en">The GR00T server is stateless — the prompt rides in each observation — so switching it mid-run needs no restart.</span>
+</p>
+
+<div class="fig">
+<svg width="900" height="250" viewBox="0 0 900 250" xmlns="http://www.w3.org/2000/svg" style="background:#fff">
+  <rect x="0" y="0" width="900" height="250" fill="#ffffff"/>
+  <!-- timeline -->
+  <text x="20" y="28" font-size="13" fill="#555" font-family="sans-serif">时间线 timeline (modulo loop)</text>
+  <g font-family="sans-serif" font-size="13">
+    <rect x="20"  y="40" width="120" height="34" rx="4" fill="#f0f5e8" stroke="#76b900"/>
+    <text x="80"  y="62" text-anchor="middle" fill="#1a1a1a">squat</text>
+    <rect x="140" y="40" width="160" height="34" rx="4" fill="#eef4fb" stroke="#2b6cb0"/>
+    <text x="220" y="62" text-anchor="middle" fill="#1a1a1a">walk (full-bootstrap)</text>
+    <rect x="300" y="40" width="120" height="34" rx="4" fill="#f0f5e8" stroke="#76b900"/>
+    <text x="360" y="62" text-anchor="middle" fill="#1a1a1a">macarena</text>
+    <rect x="420" y="40" width="160" height="34" rx="4" fill="#eef4fb" stroke="#2b6cb0"/>
+    <text x="500" y="62" text-anchor="middle" fill="#1a1a1a">walk</text>
+    <rect x="580" y="40" width="120" height="34" rx="4" fill="#f0f5e8" stroke="#76b900"/>
+    <text x="640" y="62" text-anchor="middle" fill="#1a1a1a">lunge</text>
+    <rect x="700" y="40" width="120" height="34" rx="4" fill="#eef4fb" stroke="#2b6cb0"/>
+    <text x="760" y="62" text-anchor="middle" fill="#1a1a1a">walk</text>
+    <path d="M825 57 h28" stroke="#999" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+    <path d="M860 80 q10 30 -10 30 H40 q-20 0 -20 -22" stroke="#999" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#a)"/>
+    <text x="440" y="128" text-anchor="middle" fill="#76b900" font-size="12">↺ 取模循环 loop back</text>
+  </g>
+  <!-- pipeline -->
+  <g font-family="sans-serif" font-size="12.5">
+    <rect x="20"  y="160" width="150" height="40" rx="4" fill="#fff" stroke="#d4d4d4"/>
+    <text x="95"  y="178" text-anchor="middle" fill="#1a1a1a">prompt[t] + ego + proprio</text>
+    <text x="95"  y="193" text-anchor="middle" fill="#555" font-size="11">每步 obs</text>
+    <rect x="210" y="160" width="130" height="40" rx="4" fill="#f0f5e8" stroke="#76b900"/>
+    <text x="275" y="184" text-anchor="middle" fill="#1a1a1a">GR00T N1.7 (ZMQ)</text>
+    <rect x="380" y="160" width="150" height="40" rx="4" fill="#fff" stroke="#2b6cb0"/>
+    <text x="455" y="178" text-anchor="middle" fill="#1a1a1a">注入器 decode-hook</text>
+    <text x="455" y="193" text-anchor="middle" fill="#555" font-size="11">settle→bootstrap→live</text>
+    <rect x="570" y="160" width="140" height="40" rx="4" fill="#f0f5e8" stroke="#76b900"/>
+    <text x="640" y="184" text-anchor="middle" fill="#1a1a1a">SONIC WBC decode</text>
+    <rect x="750" y="160" width="120" height="40" rx="4" fill="#fff" stroke="#d4d4d4"/>
+    <text x="810" y="184" text-anchor="middle" fill="#1a1a1a">G1 (balanced)</text>
+    <path d="M170 180 h38" stroke="#999" stroke-width="1.5" marker-end="url(#a)"/>
+    <path d="M340 180 h38" stroke="#999" stroke-width="1.5" marker-end="url(#a)"/>
+    <path d="M530 180 h38" stroke="#999" stroke-width="1.5" marker-end="url(#a)"/>
+    <path d="M710 180 h38" stroke="#999" stroke-width="1.5" marker-end="url(#a)"/>
+  </g>
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#999"/></marker></defs>
+</svg>
+<figcaption>一句话序列在一个会话里循环驱动;每段内部 settle→bootstrap→live 三窗口。<br><span class="en">A sentence-sequence loops within one session; each segment runs settle → bootstrap → live windows.</span></figcaption>
+</div>
+
+<h2>2 · 段内三窗口 + 演示流 / Per-segment windows &amp; flows</h2>
+<p>注入器(<code>vla_live_injector.py</code>)按 timeline 推进,每段内部顺序:</p>
+<table>
+<tr><th>窗口 window</th><th>作用</th><th>用于</th></tr>
+<tr><td><span class="k">settle</span></td><td>段首注入中性/冻结上一姿态,平滑接缝</td><td>所有非首段</td></tr>
+<tr><td><span class="k">bootstrap</span></td><td>回放离线 dump token 把机器人<strong>带进</strong>一次性动作</td><td>kick/walk/jump(从站姿启不动的)</td></tr>
+<tr><td><span class="k">live</span></td><td>跟 GR00T server 实时吐的 token</td><td>自持动作(squat/lunge/dance/macarena)</td></tr>
+</table>
+<p><strong>full_bootstrap</strong>:walk 段整段回放走路 token(连续行走当"连接器"),因为 7 个 demo 里<strong>没有独立 run</strong>,locomotion 只有 <code>walk</code>。</p>
+
+<p>演示流注册表 <code>scripts/sonic_demo_flows.json</code>(数据,不是代码):</p>
+<table>
+<tr><th>flow</th><th>序列</th><th>特点</th></tr>
+<tr><td><span class="k">flow1</span></td><td>squat → lunge → macarena</td><td>全自持、全原地、纯 live、接缝最干净</td></tr>
+<tr><td><span class="k">flow2</span></td><td>squat → walk → macarena → walk → lunge → walk</td><td>动作 + walk 串接;动作段 live,walk 段 full-bootstrap;<strong>走到新位置作动作</strong></td></tr>
+</table>
+
+<h2>3 · 一键启动 / One-click</h2>
+<p><code>gear_sonic_live_demo.sh</code> 自动<strong>起 GR00T server</strong>(幂等,缺则加载约 1 分钟)再开 viewer——因为 server / viewer 在不同 env,必须编排:</p>
+<pre><code>bash scripts/gear_sonic_live_demo.sh list        # 看有哪些流
+bash scripts/gear_sonic_live_demo.sh @flow1      # 离散动作循环
+bash scripts/gear_sonic_live_demo.sh @flow2      # 动作 + walk 串接
+bash scripts/gear_sonic_live_demo.sh squat,lunge,macarena   # 即兴序列
+bash scripts/gear_sonic_stop.sh                  # 停 viewer+server 释放显存</code></pre>
+<p>SONIC.ipynb <strong>⑤ 区</strong>已封装这几条为一键 cell。viewer 快捷键:<code>C</code>=一键贴近机器人 · <code>F</code>=跟随/自由切换 · <code>R</code>=复位。</p>
+
+<hr>
+
+<h2 id="clocks">4 · 调试实录:三个独立时钟 / The three independent clocks</h2>
+<p>
+"动作串联"代码本身不难;<strong>真正的硬骨头是调试过程暴露的三个独立时钟</strong>。GUI 上反复出现"机器人闪回原点"和"卡死",根因都在时钟。这一节是本文最有价值的部分。
+<br><span class="en">The chaining code was easy; the hard part was three independent clocks surfaced while debugging the "flash back to origin" + "freeze" symptoms.</span>
+</p>
+
+<div class="fig">
+<svg width="860" height="300" viewBox="0 0 860 300" xmlns="http://www.w3.org/2000/svg" style="background:#fff">
+  <rect x="0" y="0" width="860" height="300" fill="#ffffff"/>
+  <g font-family="sans-serif" font-size="13">
+    <!-- clock 1 -->
+    <rect x="20" y="30" width="250" height="76" rx="6" fill="#f0f5e8" stroke="#76b900"/>
+    <text x="34" y="52" fill="#1a1a1a" font-weight="600">① Gym episode 时钟</text>
+    <text x="34" y="72" fill="#555" font-size="12">terminations + episode_length_s</text>
+    <text x="34" y="90" fill="#4a7400" font-size="12">✓ 我用 time_out=null + 拉长关掉了</text>
+    <!-- clock 2 -->
+    <rect x="300" y="30" width="280" height="76" rx="6" fill="#fdecea" stroke="#c0392b"/>
+    <text x="314" y="52" fill="#1a1a1a" font-weight="600">② TrackingCommand motion 时钟</text>
+    <text x="314" y="72" fill="#555" font-size="12">_update_command 每步 +1</text>
+    <text x="314" y="90" fill="#c0392b" font-size="12">✗ 一直武装着 → 闪回原点的真凶</text>
+    <!-- clock 3 -->
+    <rect x="610" y="30" width="230" height="76" rx="6" fill="#eef4fb" stroke="#2b6cb0"/>
+    <text x="624" y="52" fill="#1a1a1a" font-weight="600">③ 注入器 global_t</text>
+    <text x="624" y="72" fill="#555" font-size="12">驱动 timeline / 取模循环</text>
+    <text x="624" y="90" fill="#2b6cb0" font-size="12">✓ 单调,我以为它代表一切</text>
+    <!-- the bug -->
+    <rect x="120" y="150" width="620" height="120" rx="6" fill="#fff6ec" stroke="#b35900"/>
+    <text x="140" y="174" fill="#b35900" font-weight="600">②的杀伤链:参考 clip(squat=424 帧≈8.5s)播完</text>
+    <text x="140" y="198" fill="#1a1a1a" font-size="12.5">_update_command → 触发边界 → _resample_command()</text>
+    <text x="140" y="220" fill="#1a1a1a" font-size="12.5">→ write_root_state_to_sim()  把机器人 root <strong>1-frame 硬传送</strong>回参考原点 (0,0,0.79)</text>
+    <text x="140" y="244" fill="#c0392b" font-size="12.5">→ <strong>绕过 dones</strong>!我的 dones 探针完全看不到 → 误判"没有 reset"</text>
+    <text x="140" y="262" fill="#555" font-size="11.5">walk 把机器人推到 −1.9m;8.5s 一到就被传送回 0 → "闪回原点作下一个动作"</text>
+  </g>
+</svg>
+<figcaption>三个时钟。我关了①、信了③,却漏了② —— SONIC 自己的 motion 时钟在 clip 边界硬传送机器人,不走 dones。<br><span class="en">Disabled clock ①, trusted clock ③, missed clock ② — SONIC's own motion clock teleports the robot at clip boundaries, bypassing <code>dones</code>.</span></figcaption>
+</div>
+
+<h3>4.1 诊断顺序(以及我错在哪)</h3>
+<ol>
+<li><strong>症状</strong>:flow2 里机器人"闪回原点作接下来的动作",且失去"走到别处作动作"的能力。</li>
+<li><span class="x">错误假设</span>:我加 <code>dones</code> 触发日志 → <strong>RESET=0</strong>,注入器 <code>global_t</code> 单调 → 我判"不是 reset",转而猜"WBC 锚点拽回"。</li>
+<li><strong>探针 root XY</strong>:机器人稳定在 (−20,−76)(随机 terrain 的 env-0 子原点),离世界原点 80m。我先以为是"相机闪回世界原点"。改 <code>terrain_type=plane</code> 把机器人放回 (0,0) —— <strong>没解决</strong>(只是让闪点和机器人重合一会)。</li>
+<li><strong>每 50 步记 root(覆盖 walk 段)</strong>:walk 把 root 推到 −1.87m;下一段 macarena 一开始就弹回 ~0。<strong>时序铁证</strong>:squat clip=424 帧 ≈ 弹回发生的 step。</li>
+<li><span class="ok">真凶</span>:读 <code>_update_command</code>(docstring 明写 "handle episode <strong>wrap-around</strong>")——clip 播完调 <code>_resample_command</code> → <code>write_root_state_to_sim</code> 硬传送回原点,<strong>不设 dones</strong>。</li>
+</ol>
+
+<div class="bad">
+<strong>三方独立验证 / Triangulated.</strong> 让 codex(gpt-5.5)+ mimo-v2.5-pro 两个模型独立批判,<strong>都独立指向同一处</strong>并否掉我的"WBC 拽回":
+<ul>
+<li>"<em>'No dones' does not rule out a root write … `_resample_command` writes root via `write_root_state_to_sim`. That is a soft command reset, not a Gym termination. Your dones probe missed the main suspect.</em>"</li>
+<li>"<em>g1_dyn decoder inputs are only token_flattened + proprioception — it does NOT include motion_anchor_pos_b. Don't sell this as an XY anchor spring.</em>"(= 我的"锚点拽回"框架错了)</li>
+<li>最大盲点:"<em>two clocks — you disabled the Gym episode clock and left the TrackingCommand motion clock armed.</em>"</li>
+</ul>
+</div>
+
+<h3>4.2 修复:freeze 而非 loop</h3>
+<p>修法 = 当机器人由<strong>外部注入 token</strong> 驱动时(参考只是惰性脚手架),<strong>冻结参考时钟</strong>:不推进、不重采样,边界永不触发。<code>SONIC_NO_REF_RESAMPLE=1</code> 环境变量门控(<code>patches/gear-sonic/0006</code>):</p>
+<pre><code># gear_sonic/envs/manager_env/mdp/commands.py · _update_command()
+if os.environ.get("SONIC_NO_REF_RESAMPLE", "0") != "0":
+    pass                       # freeze: 不推进 time_steps、不调 _resample_command
+else:
+    self.time_steps += 1
+    env_ids = torch.where(self.time_steps + self.motion_start_time_steps
+                          &gt;= self.motion_lib.get_time_step_total(self.motion_ids))[0]
+    self._resample_command(env_ids)   # 原行为:clip 末重采样(会传送机器人)</code></pre>
+
+<div class="warn">
+<strong>踩过的二次坑 / The fix that broke it.</strong> 我第一版用"<strong>循环时钟</strong>"(<code>time_steps = −motion_start_time_steps</code>)而非冻结。RSI 起始帧非零时 time_steps <strong>变负 → 参考帧索引越界 → NaN → 物理炸 → GUI 卡死</strong>(用户报"原本闪回的时间点现在卡死")。<br>
+正解是<strong>冻结</strong>(codex/mimo 都推荐 freeze/clamp 而非 loop):停在 init 的有效帧,无负索引、无 buffer 不一致。
+</div>
+
+<h3>4.3 修复前后(实测 root,flow2 walk→macarena)</h3>
+<table>
+<tr><th>step</th><th>段</th><th>修复前 root.y</th><th>修复后 root.y</th></tr>
+<tr><td>350</td><td>walk</td><td>−0.95</td><td>−0.96</td></tr>
+<tr><td>400</td><td>macarena 始</td><td>−1.87</td><td>−1.87</td></tr>
+<tr><td>450</td><td>macarena</td><td><span class="x">−0.07（传送回原点）</span></td><td><span class="ok">−2.37（留在新位置）</span></td></tr>
+<tr><td>500</td><td>macarena</td><td>—</td><td><span class="ok">−2.44</span></td></tr>
+<tr><td>600</td><td>walk</td><td>—</td><td><span class="ok">−2.57（继续往前）</span></td></tr>
+</table>
+<p class="small">跨过 424 帧边界:修复后 root 平滑保持位移,<strong>无传送、无卡死</strong>(RESET=0 FALLEN=0)。机器人走到哪、就在哪作下一个动作。</p>
+
+<h2>5 · 其它 GUI demo 坑(一并修了)</h2>
+<table>
+<tr><th>坑</th><th>现象</th><th>修</th></tr>
+<tr><td>默认上帝视角太远</td><td>看不清机器人/腿被切</td><td>launcher <code>viewer.eye=[2.2,2.2,0.5] lookat=[0,0,-0.1]</code> 近距全身;wrapper 加 <code>C</code> 键一键贴近(patch 0005);CAM_EYE/CAM_LOOKAT 可调</td></tr>
+<tr><td>黄/红球乱跑</td><td>marker 跟的是 squat 参考(原地+循环),机器人被 token 驱动走开→对不上</td><td>无轻量修法 → 默认 <code>debug_vis=False</code> 隐藏</td></tr>
+<tr><td>terrain 子原点</td><td>机器人 spawn 在 (−20,−76),相机闪世界原点很显眼</td><td><code>terrain_type=plane</code> 把 env-0 放回世界原点</td></tr>
+<tr><td>推理 stall</td><td>每 chunk 卡顿;实时 viewer 不顺</td><td>平滑录像走 render-to-mp4(每帧算好写盘);提速要 server bf16</td></tr>
+<tr><td><code>pgrep -f eval_agent_trl</code> 自匹配</td><td>诊断命令含该串→匹配自己→"进程反复重启"假象</td><td>用 <code>ps|grep '[e]val_agent_trl'</code> bracket 技巧</td></tr>
+</table>
+
+<h2>6 · 脚手架 / Scaffolding</h2>
+<table>
+<tr><th>文件</th><th>作用</th></tr>
+<tr><td><code>scripts/gear_sonic_sequence.sh</code></td><td>串接 launcher(@flow/list/即兴 · 近距视角 · debug_vis 关 · time_out+episode_length+NO_REF_RESAMPLE 全配齐)</td></tr>
+<tr><td><code>scripts/gr00t_build_sequence.py</code></td><td>timeline 构造器(--seq / --flow / full_bootstrap)</td></tr>
+<tr><td><code>scripts/sonic_demo_flows.json</code></td><td>演示流注册表(flow1 / flow2)</td></tr>
+<tr><td><code>scripts/gear_sonic_live_demo.sh</code></td><td>一键:起 server + 播放</td></tr>
+<tr><td><code>scripts/gear_sonic_stop.sh</code></td><td>停 viewer + server 释放显存</td></tr>
+<tr><td><code>patches/gear-sonic/0004</code></td><td>注入器 timeline 化(modulo + settle/bootstrap/live)+ root/RESET 诊断探针</td></tr>
+<tr><td><code>patches/gear-sonic/0005</code></td><td>viewer <code>C</code> 键近距视角</td></tr>
+<tr><td><code>patches/gear-sonic/0006</code></td><td><code>SONIC_NO_REF_RESAMPLE</code> 冻结参考时钟(治闪回+卡死)</td></tr>
+</table>
+
+<h2>7 · 诚实边界 / Honest scope</h2>
+<ul>
+<li><strong>是编排,不是理解</strong>。一句话"蹲走踢"是<strong>状态机按时序换 prompt</strong>串起来的,模型并没解析这句复合指令。真·组合 prompt 需要先补 P1 obs history/phase clock + 过 held-out 泛化闸门(见 <a href="sonic_vla_critique_roadmap.html">critique roadmap</a>)。</li>
+<li><strong>参考是惰性脚手架</strong>。本路线下机器人完全由注入 token 驱动,加载的 reference 只为 env 初始化;冻结它的时钟不影响动作质量。</li>
+<li><strong>实时 viewer 有推理 stall</strong>。平滑演示视频应走 render-to-mp4,不要录抖动的实时画面。</li>
+<li><strong>仍 RELAX</strong>(终止阈值放宽)。这是动作可玩性的 demo,非 fall-resistance 验证。</li>
+</ul>
+
+<hr>
+<p class="small">
+关联文档:<a href="groot_sonic_wbc_route.html">架构侧路线 (WBC route)</a> · <a href="sonic_vla_closeloop_validation.html">闭环验证</a> · <a href="sonic_vla_critique_roadmap.html">三模型评审 + roadmap</a>。<br>
+本文记录 2026-06-09 动作串联 + 三时钟调试 + freeze 修复;脚手架见 §6,记忆见 <code>.memory/sonic-wbc-vla-route.md</code>。
+</p>
+
+</div>
+</body>
+</html>

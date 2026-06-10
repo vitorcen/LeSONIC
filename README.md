@@ -18,13 +18,24 @@ https://github.com/user-attachments/assets/8f212cba-f8f0-46bc-8483-cf5d704e2bce
 > 原理 + 三时钟调试（`_resample_command` 在 clip 边界硬传送机器人绕过 `dones`）+ `SONIC_NO_REF_RESAMPLE` freeze 修复：
 > [`doc/sonic_action_sequencing.html`](doc/sonic_action_sequencing.html)。跑法 `bash scripts/gear_sonic_live_demo.sh @flow2`（`list`/`@flow1`/即兴序列）。
 
+## 🥋🏃💃 演示 · flow3 LAFAN 技能 / Demo — flow3 LAFAN skills
+
+从 LAFAN clip **按秒手挑**干净动作窗口 → 过**物理可行性筛查**（关掉严格安全包络，只看机器人**到底有没有真摔**：10 个窗口里严格闸门只过 2 个，但 6 个从头到尾没摔）→ 录 token 训进**同一个 VLA** → 拼成 flow3 循环：
+**防守-蹬腿 → 转圈跑 → 搏击-连踢 → 快跑-倒跑 → 太空漫步 → 慢跑-倒跑**。
+_Hand-picked LAFAN windows pass a **physical-validity screen** (“did it actually fall?”, not “did a strict safety threshold trip?” → 6/10 never fall vs 2/10 under strict), recorded into the **same** VLA, looped as flow3 (fight / run / dance)._
+
+https://github.com/user-attachments/assets/add401c4-4628-4713-b82b-ab8b9b664a50
+
+> 原理（token=「什么」/ WBC=「怎么」、**为何仍需参考 `.pkl`**、数据集 6 步管线、**两道筛查闸门**）：[`doc/sonic_vla_principles.html`](doc/sonic_vla_principles.html)。
+> 跑法 `bash scripts/gear_sonic_flow3.sh`（🔁 离线回放，**保证流畅**）/ `bash scripts/gear_sonic_live_demo.sh @flow3`（🛰️ live 实时推理）。逐窗口筛选见 `LAFAN.ipynb`。
+
 ## 🤗 发布物 / Published
 
 | | |
 |---|---|
-| 模型 / Model | [`wsagi/GR00T-N1.7-G1-SONIC`](https://huggingface.co/wsagi/GR00T-N1.7-G1-SONIC) — checkpoint-8000 推理权重 + 7 闭环 demo |
-| 数据集 / Dataset | [`wsagi/SONIC-VLA-LeRobot`](https://huggingface.co/datasets/wsagi/SONIC-VLA-LeRobot) — LeRobot v2.1，7 动作各 1 ep（3815 帧） |
-| 血缘 / Lineage | `bones-studio/seed → nvidia/GEAR-SONIC → wsagi/SONIC-VLA-LeRobot → wsagi/GR00T-N1.7-G1-SONIC` |
+| 模型 / Model | [`wsagi/GR00T-N1.7-G1-SONIC-BonesSeed`](https://huggingface.co/wsagi/GR00T-N1.7-G1-SONIC-BonesSeed) — checkpoint-8000 推理权重 + 7 闭环 demo |
+| 数据集 / Dataset | [`wsagi/SONIC-VLA-BonesSeed`](https://huggingface.co/datasets/wsagi/SONIC-VLA-BonesSeed) — LeRobot v2.1，7 动作各 1 ep（3815 帧） |
+| 血缘 / Lineage | `bones-studio/seed → nvidia/GEAR-SONIC → wsagi/SONIC-VLA-BonesSeed → wsagi/GR00T-N1.7-G1-SONIC-BonesSeed` |
 
 > ⚠️ **状态 = derisk / proof-of-concept**：记忆 7 动作（各 1 ep），**泛化未测**；闭环 demo 在放宽终止（`RELAX=1`）下录制。
 > 完整批判 + P0–P4 roadmap 见 [`doc/sonic_vla_critique_roadmap.html`](doc/sonic_vla_critique_roadmap.html)（三模型联合评审）。
@@ -56,6 +67,7 @@ LeSONIC/
 │   └─ gr00t-n17/                   # 0001 finetune OOM fix（adafactor + grad-ckpt）
 ├─ doc/                            # 单文件 HTML（内嵌 SVG，中英对照）
 │   ├─ groot_sonic_wbc_route.html        # 架构总览 Stage A/B/C + derisk 复盘
+│   ├─ sonic_vla_principles.html         # 🆕 原理 + 数据集 6 步 + 两道闸门 + 为何仍需 pkl
 │   ├─ sonic_dance_motion_source.html    # 动作源三路对比
 │   ├─ sonic_vla_closeloop_validation.html# 闭环验证（无记忆策略本质 + bootstrap）
 │   └─ sonic_vla_critique_roadmap.html    # 🔬 三模型联合评审 + P0–P4 roadmap

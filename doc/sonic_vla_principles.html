@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SONIC-VLA 原理与数据集制作 / Principles & Dataset Pipeline</title>
+<style>
+  :root { color-scheme: light; }
+  html { background: #ffffff; }
+  body {
+    background: #ffffff; color: #1a1a1a;
+    font-family: -apple-system, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.7; max-width: 1000px; margin: 0 auto; padding: 28px 22px 80px;
+  }
+  h1 { font-size: 1.8rem; border-bottom: 3px solid #2563eb; padding-bottom: 12px; }
+  h2 { font-size: 1.35rem; margin-top: 2.2em; color: #1e3a8a; border-left: 5px solid #2563eb; padding-left: 12px; }
+  h3 { font-size: 1.08rem; margin-top: 1.6em; color: #1e40af; }
+  .en { color: #555; font-style: italic; font-size: 0.92em; }
+  p, li { font-size: 0.96em; }
+  code { background: #f1f5f9; color: #b91c1c; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px;
+    overflow-x: auto; font-size: 0.84em; line-height: 1.5;
+  }
+  pre code { background: transparent; color: #e2e8f0; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; background: #ffffff; color: #1a1a1a; font-size: 0.9em; }
+  th, td { border: 1px solid #cbd5e1; padding: 7px 10px; text-align: left; vertical-align: top; }
+  th { background: #1e3a8a; color: #ffffff; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  .tldr { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 1.4em 0; }
+  .warn { background: #fef2f2; border: 1px solid #fecaca; border-left: 5px solid #dc2626; border-radius: 8px; padding: 12px 18px; margin: 1.2em 0; }
+  .ok   { background: #f0fdf4; border: 1px solid #bbf7d0; border-left: 5px solid #16a34a; border-radius: 8px; padding: 12px 18px; margin: 1.2em 0; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-left: 5px solid #d97706; border-radius: 8px; padding: 12px 18px; margin: 1.2em 0; }
+  .tag { display: inline-block; font-size: 0.75em; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; vertical-align: middle; }
+  .t-red { background: #dc2626; } .t-amber { background: #d97706; } .t-green { background: #16a34a; } .t-blue { background: #2563eb; } .t-gray { background: #64748b; }
+  figure { margin: 1.4em 0; text-align: center; }
+  figcaption { font-size: 0.85em; color: #475569; margin-top: 6px; }
+  svg { background: #ffffff; max-width: 100%; height: auto; }
+  .small { font-size: 0.85em; color: #475569; }
+</style>
+</head>
+<body>
+
+<h1>SONIC-VLA 原理 & 数据集制作关键步骤<br><span class="en">SONIC-VLA: Architecture Principle & Dataset Pipeline</span></h1>
+
+<div class="tldr">
+<b>TL;DR</b> — VLA(GR00T)只产出一个 <b>64 维 FSQ 动作 token</b>(“做什么”),冻结的 SONIC WBC 把 token 解码成 29 个关节目标并兜住平衡(“怎么做”)。<b>机器人是被 token 驱动的,不是被参考动作驱动的</b>;命令行里的 <code>.pkl</code> 只是借用 SONIC 跟踪环境时的<b>出生姿态 + 必填占位</b>,不进驱动回路。数据集制作的核心 = 让冻结 WBC 真去跟踪一段参考、把它每帧吐的 token 录下来,再教 GR00T 从 <code>(画面, 指令)</code> 复现这些 token。<br>
+<span class="en">The VLA emits only a 64-d FSQ token (“what”); the frozen WBC decodes it to joint targets and keeps balance (“how”). The robot is driven by the token, not by the reference motion — the <code>.pkl</code> is just the spawn pose + a required placeholder of SONIC’s tracking env, never in the driving loop.</span>
+</div>
+
+<h2>1. 架构原理:token 是“什么”,WBC 是“怎么” <span class="en">/ token = what, WBC = how</span></h2>
+
+<p>整条链路把一个难问题拆成两半:</p>
+<ul>
+<li><b>语义/意图层</b>(会变、要泛化)→ 交给 VLA:<code>(自我视角图像 + 文字指令)</code> → GR00T N1.7 → <b>64 维 FSQ token</b>。token 是 SONIC 动作潜空间里的一个离散码,代表“此刻该摆出的全身动作”。</li>
+<li><b>物理/平衡层</b>(不变、最难、已练好)→ 交给冻结的 GEAR-SONIC WBC:<code>decode(token, 本体感觉)</code> → 29 个关节目标 @50Hz,内部隐式维持站立平衡、脚地接触。</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 920 230" width="920" role="img" aria-label="architecture data flow">
+  <rect x="0" y="0" width="920" height="230" fill="#ffffff"/>
+  <!-- inputs -->
+  <rect x="14" y="40" width="150" height="56" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="89" y="64" text-anchor="middle" font-size="13" fill="#1e3a8a">ego 图像 + 指令</text>
+  <text x="89" y="82" text-anchor="middle" font-size="11" fill="#475569">ego image + prompt</text>
+  <!-- GR00T -->
+  <rect x="200" y="34" width="160" height="68" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="280" y="60" text-anchor="middle" font-size="14" fill="#1e3a8a" font-weight="700">GR00T N1.7 VLA</text>
+  <text x="280" y="80" text-anchor="middle" font-size="11" fill="#475569">学到的部分 / learned</text>
+  <!-- token -->
+  <rect x="400" y="40" width="120" height="56" rx="8" fill="#fef9c3" stroke="#d97706" stroke-width="2"/>
+  <text x="460" y="62" text-anchor="middle" font-size="13" fill="#92400e" font-weight="700">64-d token</text>
+  <text x="460" y="80" text-anchor="middle" font-size="11" fill="#92400e">FSQ 离散码</text>
+  <!-- WBC -->
+  <rect x="560" y="34" width="170" height="68" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="645" y="58" text-anchor="middle" font-size="14" fill="#166534" font-weight="700">冻结 SONIC WBC</text>
+  <text x="645" y="78" text-anchor="middle" font-size="11" fill="#166534">frozen, 平衡底座</text>
+  <!-- robot -->
+  <rect x="770" y="40" width="135" height="56" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="837" y="64" text-anchor="middle" font-size="13" fill="#334155">G1 29-DoF</text>
+  <text x="837" y="82" text-anchor="middle" font-size="11" fill="#475569">关节 @50Hz</text>
+  <!-- arrows -->
+  <g stroke="#475569" stroke-width="1.8" fill="#475569">
+    <line x1="164" y1="68" x2="198" y2="68"/><polygon points="198,68 190,64 190,72"/>
+    <line x1="360" y1="68" x2="398" y2="68"/><polygon points="398,68 390,64 390,72"/>
+    <line x1="520" y1="68" x2="558" y2="68"/><polygon points="558,68 550,64 550,72"/>
+    <line x1="730" y1="68" x2="768" y2="68"/><polygon points="768,68 760,64 760,72"/>
+  </g>
+  <!-- proprioception feedback -->
+  <rect x="560" y="150" width="170" height="40" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="645" y="167" text-anchor="middle" font-size="12" fill="#334155">本体感觉 proprioception</text>
+  <text x="645" y="183" text-anchor="middle" font-size="10.5" fill="#64748b">机器人自身关节状态</text>
+  <g stroke="#94a3b8" stroke-width="1.6" fill="#94a3b8">
+    <line x1="837" y1="96" x2="837" y2="170"/><line x1="837" y1="170" x2="732" y2="170"/><polygon points="732,170 740,166 740,174"/>
+  </g>
+  <text x="648" y="124" text-anchor="middle" font-size="11" fill="#16a34a">decode(token, 本体感觉) → 关节</text>
+</svg>
+<figcaption>图 1 · 驱动回路:GR00T 出 token,WBC 吃 <b>token + 机器人自身状态</b> 解码成关节。参考动作 pkl 不在这条回路里。</figcaption>
+</figure>
+
+<p>为什么要这么拆?<b>平衡是机器人学里最难、最不该重学的部分</b>。SONIC WBC 是用 4096 个并行环境、海量迭代练出来的通用动作跟踪器。VLA 只需在它的 token 空间里“点菜”,不必从零学会怎么不摔——这就是“架构侧”路线的核心红利。</p>
+
+<h2>2. VLA 学会动作了,为什么命令行还要带 <code>.pkl</code>? <span class="en">/ why still pass a reference pkl?</span></h2>
+
+<p>这是最容易误解的一点。<b>答案:<code>.pkl</code> 完全没参与驱动机器人。</b> 机器人动起来 100% 靠 GR00T 吐的 token → WBC 解码,参考动作一帧都没喂进解码公式。</p>
+
+<p>那为什么还必须带?因为我们的 in-process demo <b>借用了 SONIC 的“跟踪(tracking)eval 环境”</b>,而那个环境在架构上<b>为“跟踪一段参考”而生</b>,不加载参考就建不起来。<code>.pkl</code> 只做三件脚手架的事:</p>
+
+<table>
+<tr><th>用途 / role</th><th>说明</th><th>是否驱动动作?</th></tr>
+<tr><td><b>出生姿态</b><br><span class="small">spawn / reset pose</span></td><td>env reset 时把机器人摆到参考第 1 帧的位置与姿势,给个起点。之后全交给 token。</td><td>仅决定起点</td></tr>
+<tr><td><b>必填命令项</b><br><span class="small">required TrackingCommand term</span></td><td>SONIC env 的 <code>command_manager</code> 里必须有一个 motion 命令项才能实例化场景——哪怕我们根本不用它跟踪。</td><td><b>否</b>(占位)</td></tr>
+<tr><td><b>绿色参考骨架</b><br><span class="small">green skeleton (press V)</span></td><td>可视化“目标动作”,方便对比。纯显示。</td><td><b>否</b></td></tr>
+</table>
+
+<figure>
+<svg viewBox="0 0 900 250" width="900" role="img" aria-label="what drives the robot vs what the pkl does">
+  <rect x="0" y="0" width="900" height="250" fill="#ffffff"/>
+  <!-- driving loop box -->
+  <rect x="14" y="20" width="560" height="120" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <text x="30" y="42" font-size="13" fill="#166534" font-weight="700">驱动回路 / driving loop（机器人真正听这个）</text>
+  <rect x="34" y="60" width="150" height="50" rx="7" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="109" y="90" text-anchor="middle" font-size="12" fill="#1e3a8a">GR00T token</text>
+  <rect x="220" y="60" width="160" height="50" rx="7" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="300" y="83" text-anchor="middle" font-size="12" fill="#166534">WBC decode</text>
+  <text x="300" y="99" text-anchor="middle" font-size="10" fill="#166534">+ 本体感觉</text>
+  <rect x="416" y="60" width="140" height="50" rx="7" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="486" y="90" text-anchor="middle" font-size="12" fill="#334155">G1 关节</text>
+  <g stroke="#16a34a" stroke-width="1.8" fill="#16a34a">
+    <line x1="184" y1="85" x2="218" y2="85"/><polygon points="218,85 210,81 210,89"/>
+    <line x1="380" y1="85" x2="414" y2="85"/><polygon points="414,85 406,81 406,89"/>
+  </g>
+  <!-- pkl box -->
+  <rect x="14" y="165" width="560" height="70" rx="10" fill="#fffbeb" stroke="#d97706" stroke-width="2"/>
+  <text x="30" y="187" font-size="13" fill="#92400e" font-weight="700">参考 .pkl / reference（脚手架,不进上面回路）</text>
+  <text x="30" y="210" font-size="11.5" fill="#92400e">① 出生姿态　② 必填命令项占位　③ 绿色骨架可视化</text>
+  <text x="30" y="227" font-size="11" fill="#b45309">→ NULLTERM 还关掉了“偏离参考就 reset”,所以连纠正作用都没有</text>
+  <!-- right: real deploy -->
+  <rect x="600" y="20" width="285" height="215" rx="10" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="616" y="44" font-size="13" fill="#1e3a8a" font-weight="700">真实部署 / real deploy</text>
+  <text x="616" y="70" font-size="11.5" fill="#334155">C++/ZMQ 真机里<b>根本没有参考动作</b>:</text>
+  <text x="628" y="92" font-size="11.5" fill="#334155">机器人 = WBC 跑 GR00T token</text>
+  <text x="628" y="110" font-size="11.5" fill="#334155">　　　　 + 自身本体感觉</text>
+  <text x="616" y="140" font-size="11" fill="#475569">.pkl 的需求只属于“复用 SONIC</text>
+  <text x="616" y="157" font-size="11" fill="#475569">eval 跟踪环境跑 in-process</text>
+  <text x="616" y="174" font-size="11" fill="#475569">demo”这个权宜做法。</text>
+  <text x="616" y="205" font-size="11" fill="#1d4ed8">换任意一个动作的 pkl 都行,</text>
+  <text x="616" y="222" font-size="11" fill="#1d4ed8">只影响出生姿态。</text>
+</svg>
+<figcaption>图 2 · 左上=真正驱动机器人的回路(无 pkl);左下=pkl 只做脚手架;右=真机部署根本不需要参考。</figcaption>
+</figure>
+
+<div class="note"><b>一句话类比</b> — <code>.pkl</code> 就像舞台上的一个<b>起始站位标记</b>:演员(GR00T+WBC)站上去后整段表演靠自己,标记不再起作用。所以我们随手传 <code>seg_flow3_all.pkl</code> 只图它是个现成能加载的合法参考。<br><span class="en">The pkl is a stage start-position mark: once the performers (GR00T+WBC) step on it, the act is all theirs.</span></div>
+
+<h2>3. 数据集制作关键步骤 <span class="en">/ the dataset pipeline</span></h2>
+
+<p>核心思路:<b>token 不是凭空造的,是“真让冻结 WBC 去跟踪一段参考、把它每帧实际吐的 token 抄下来”</b>。所以制作链路本质是“一次受控的 WBC 跟踪 + 偷取 token”。</p>
+
+<figure>
+<svg viewBox="0 0 920 300" width="920" role="img" aria-label="dataset pipeline">
+  <rect x="0" y="0" width="920" height="300" fill="#ffffff"/>
+  <!-- step boxes -->
+  <g font-size="12">
+  <rect x="20" y="24" width="150" height="60" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="95" y="48" text-anchor="middle" fill="#1e3a8a" font-weight="700">① 切窗口</text>
+  <text x="95" y="66" text-anchor="middle" fill="#475569" font-size="10.5">cut → robot_filtered</text>
+
+  <rect x="200" y="24" width="170" height="60" rx="8" fill="#fff7ed" stroke="#d97706"/>
+  <text x="285" y="44" text-anchor="middle" fill="#92400e" font-weight="700">② 两道筛查闸门</text>
+  <text x="285" y="61" text-anchor="middle" fill="#92400e" font-size="10.5">strict + 物理可行性</text>
+  <text x="285" y="76" text-anchor="middle" fill="#b45309" font-size="10">没摔的才往下走</text>
+
+  <rect x="400" y="24" width="170" height="60" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="485" y="44" text-anchor="middle" fill="#166534" font-weight="700">③ 录 token</text>
+  <text x="485" y="61" text-anchor="middle" fill="#166534" font-size="10.5">WBC 跟踪 + hook decode</text>
+  <text x="485" y="76" text-anchor="middle" fill="#166534" font-size="10">terms=null 防切短</text>
+
+  <rect x="600" y="24" width="150" height="60" rx="8" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="675" y="48" text-anchor="middle" fill="#1e3a8a" font-weight="700">④ 转 LeRobot</text>
+  <text x="675" y="66" text-anchor="middle" fill="#475569" font-size="10.5">npz → v2.1 数据集</text>
+
+  <rect x="780" y="24" width="120" height="60" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+  <text x="840" y="48" text-anchor="middle" fill="#1e3a8a" font-weight="700">⑤ 训 GR00T</text>
+  <text x="840" y="66" text-anchor="middle" fill="#475569" font-size="10.5">finetune</text>
+
+  <rect x="330" y="200" width="260" height="60" rx="8" fill="#fef9c3" stroke="#d97706" stroke-width="2"/>
+  <text x="460" y="222" text-anchor="middle" fill="#92400e" font-weight="700">⑥ dump 预测 token → flow3</text>
+  <text x="460" y="240" text-anchor="middle" fill="#92400e" font-size="10.5">离线 loop(流畅) / live(实时推理)</text>
+  </g>
+  <!-- arrows row -->
+  <g stroke="#475569" stroke-width="1.7" fill="#475569">
+    <line x1="170" y1="54" x2="198" y2="54"/><polygon points="198,54 190,50 190,58"/>
+    <line x1="370" y1="54" x2="398" y2="54"/><polygon points="398,54 390,50 390,58"/>
+    <line x1="570" y1="54" x2="598" y2="54"/><polygon points="598,54 590,50 590,58"/>
+    <line x1="750" y1="54" x2="778" y2="54"/><polygon points="778,54 770,50 770,58"/>
+    <!-- down to flow3 -->
+    <line x1="840" y1="84" x2="840" y2="170"/><line x1="840" y1="170" x2="590" y2="170"/><line x1="590" y1="170" x2="590" y2="198"/><polygon points="590,198 586,190 594,190"/>
+  </g>
+  <text x="610" y="160" font-size="10.5" fill="#64748b">训练集内 MSE 验证 ≤0.004 = 学会了</text>
+</svg>
+<figcaption>图 3 · 六步管线。②是闸门(决定哪段能进),③是“偷 token”的核心,⑤教 GR00T 复现,⑥落地成 demo。</figcaption>
+</figure>
+
+<h3>① 切窗口 <span class="en">/ cut a window</span></h3>
+<p>从整段长 clip(fight/run/dance,MimicKit 格式)按秒手挑一段干净动作,转成 SONIC 的 <code>robot_filtered</code> 格式(<code>root_trans/pose_aa/dof/root_rot/fps</code>)。脚本 <code>cut_motion_window.py</code>。手挑而非自动切——自动速度谷切割会切在动作中间或跨转身,标注全错。</p>
+
+<h3>② 两道筛查闸门(关键!)<span class="en">/ two screening gates</span></h3>
+<p>详见 §4。一句话:<b>先问“严格跟踪能不能全程不被安全阈值打断”,再问“到底有没有真摔”</b>。只有“没真摔”的窗口才值得录——否则 token 编码的是 WBC 跟不住的姿态,VLA 学了会出不稳行为。</p>
+
+<h3>③ 录 token(偷取的核心)<span class="en">/ record tokens</span></h3>
+<p>让冻结 WBC 物理跟踪这段参考,同时<b>挂钩子(hook)截下它每帧吐的 token</b>:</p>
+<ul>
+<li>钩在 <code>actor_module.decode("g1_dyn", d)</code>,取 <code>d["token_flattened"]</code> → 64 维,正是 C++ 部署里发布的 <code>token_state</code>。</li>
+<li>同时录 ego 相机帧 + 本体感觉,存一份 <code>.npz</code>/帧。</li>
+<li><b>录制必须 <code>terms=null</code></b>:这些窗口会触发 strict 安全阈值(见 §4),不关掉的话 episode 会被中途 reset,token 录一半就断。关掉只影响“是否 reset”,<b>不改 WBC 的动作</b>,所以 token 和部署一致。</li>
+</ul>
+
+<h3>④ 转 LeRobot 数据集 <span class="en">/ convert</span></h3>
+<p>把裸 npz 转成 GR00T 能吃的 <code>UNITREE_G1_SONIC</code> LeRobot v2.1 数据集:<code>action.motion_token</code>(64)、<code>observation.images.ego_view</code>、<code>annotation.human.task_description</code>(=指令)。脚本 <code>sonic_vla_npz_to_lerobot.py</code>。</p>
+
+<h3>⑤ finetune GR00T <span class="en">/ train</span></h3>
+<p>冻结 VLM 主干,只训 DiT 动作头+projector,让模型学会 <code>(ego 图像, 指令) → token</code>。单 4090 ~55 min / 6000 步。判据 = 开环 MSE:落进已知好区间(≤0.004)= 模型确实学会吐对应 token,不是背均值。</p>
+
+<h3>⑥ dump 预测 token → flow3 <span class="en">/ deploy</span></h3>
+<p>从训好的 checkpoint 跑开环、把每个窗口的<b>预测</b> token 导出,再注入 WBC 在 Isaac 里看效果。两种播放见 §6。</p>
+
+<h2>4. 两道筛查闸门:本路线的关键洞察 <span class="en">/ the two gates — the key insight</span></h2>
+
+<div class="warn"><b>核心洞察</b> — 严格闸门把“<b>碰了安全边界</b>”当成了“<b>物理不可行</b>”,这俩不是一回事。10 个手挑窗口里严格闸门只过 2 个,但用“到底有没有真摔”重判后<b>6 个从头到尾没摔</b>。<br><span class="en">The strict gate uses “tripped a safety boundary” as a proxy for “physically infeasible” — they are not the same. 2/10 pass strict, but 6/10 never actually fall.</span></div>
+
+<table>
+<tr><th></th><th>① 严格跟踪闸门 / strict</th><th>② 物理可行性闸门 / phys-valid</th></tr>
+<tr><td><b>问什么</b></td><td>冻结 WBC 能不能在 SONIC 自带的严格安全包络内全程跟住?</td><td>WBC 跟踪时机器人<b>到底有没有真摔</b>?</td></tr>
+<tr><td><b>判据</b></td><td>4 个 adaptive 终止项:根高&gt;15cm、躯干倾&gt;25.6°、手脚高&gt;15cm(<b>单帧</b>)、脚踝&gt;20cm(<b>单帧</b>)任一触发即终止</td><td>关掉那 4 项,只看:根高&lt;0.6m 或 躯干倾&gt;40° = 真摔</td></tr>
+<tr><td><b>脚本</b></td><td><code>gear_sonic_screen.sh</code></td><td><code>gear_sonic_phys_screen.sh</code> + <code>phys_valid_screen.py</code></td></tr>
+<tr><td><b>结果(10 窗口)</b></td><td><span class="tag t-red">2/10 过</span></td><td><span class="tag t-green">6/10 没摔 + 2 长前缀</span></td></tr>
+</table>
+
+<p>为什么差这么多?因为快拳/快踢里,脚踝某<b>一帧</b>超参考 20cm 就触发 <code>foot_pos_xyz</code> 终止——但整体姿态跟得很好(局部姿态误差 mpjpe_l 全部 33–46mm,在分布内),机器人根本没摔。严格闸门是发布级的<b>保守安全监视器</b>,不是“物理可行性判决”。</p>
+
+<div class="note"><b>诚实边界</b> — “没摔” ≠ “像那个动作”。关掉终止后 WBC 可能漂着站住(如某段 moonwalk 全局漂 ~483mm,可能只是站着晃)。所以:<b>录制判据 = 物理有效(没摔→token 稳定可实现);保真度 = GUI 视觉筛</b>(MSE 好 ≠ 闭环视觉好)。三方评审(codex gpt-5.5 + mimo + 本机)一致认可这套两层判据。</div>
+
+<h2>5. token 录制的物理意义 <span class="en">/ what a recorded token actually is</span></h2>
+<ul>
+<li><b>FSQ 是固定网格</b>:量化器无可学参数,token 值落在固定的 1/16 离散网格上。所以微调 WBC <b>不会改 token 值本身</b>(但会改 decoder 把 token 解成什么动作)。</li>
+<li><b>token 来自 decode 的输入</b>:我们截的是 <code>decode</code> 入参里的 <code>token_flattened</code>,正是部署侧 proprio 里的 <code>token_state</code>。所以录到的就是真 token,不是近似。</li>
+<li><b>终止 ≠ token 坏</b>:只要 WBC 跟踪那一帧局部姿态在分布内(mpjpe_l 低),那帧 token 就是有效训练目标。终止标志是元数据,不污染 token。前缀窗口只录到摔之前那段。</li>
+</ul>
+
+<h2>6. flow3 两种播放:离线 loop vs live 实时 <span class="en">/ offline loop vs live</span></h2>
+<table>
+<tr><th></th><th>🔁 离线 loop</th><th>🛰️ live(带 server)</th></tr>
+<tr><td><b>怎么动</b></td><td>回放预先 dump 的 token,<b>保证流畅</b></td><td><b>GR00T server 真正实时推理</b>在环</td></tr>
+<tr><td><b>GUI</b></td><td>不卡</td><td>会卡顿(ZMQ 每 40 步阻塞主线程)</td></tr>
+<tr><td><b>动作持续性</b></td><td>全程忠实</td><td>短 bootstrap 进动作后,一次性窗口<b>可能渐站住</b>(单帧 obs 无记忆)</td></tr>
+<tr><td><b>脚本</b></td><td><code>gear_sonic_flow3.sh</code></td><td><code>gear_sonic_live_demo.sh @flow3</code></td></tr>
+<tr><td><b>用途</b></td><td>看动作效果、录正式视频</td><td>验证 GR00T 真在环、看实时行为</td></tr>
+</table>
+
+<div class="warn"><b>关于“慢 ~2x”</b> — live/inject 在 GUI 里比运动学回放慢近一倍,<b>不是 bug</b>:token 每步推进 1 个 @50Hz 时序正确,慢的是 <b>live viewer 实时率</b>——inject 每步要解全物理 + 跑 WBC,replay 只写姿态(无物理无策略),Isaac GUI 不锁实时 → inject 每秒画的帧少 → 看着像慢动作,抹平了踢/跑的力量感。<b>要真实速度看保真度,走 render-to-mp4 按 50fps 渲染。</b></div>
+
+<h2>7. 复现脚手架 <span class="en">/ reproduction scaffolding</span></h2>
+<table>
+<tr><th>步骤</th><th>脚本 / 产物</th></tr>
+<tr><td>切窗口</td><td><code>scripts/cut_motion_window.py</code> → <code>data/seg_*.pkl</code></td></tr>
+<tr><td>严格筛查</td><td><code>scripts/gear_sonic_screen.sh</code>（strict,无 RELAX）</td></tr>
+<tr><td>物理可行性筛查</td><td><code>scripts/gear_sonic_phys_screen.sh</code> + WBC <code>gear_sonic/data/phys_valid_screen.py</code></td></tr>
+<tr><td>录 token</td><td><code>scripts/gear_sonic_record_flow3.sh</code>（terms=null）+ WBC <code>vla_token_recorder.py</code></td></tr>
+<tr><td>转数据集</td><td><code>scripts/sonic_vla_npz_to_lerobot.py</code> → <code>datasets/sonic_vla_lerobot_flow3</code></td></tr>
+<tr><td>finetune</td><td><code>scripts/gr00t_sonic_finetune.sh</code> → <code>outputs/gr00t_sonic_flow3/checkpoint-6000</code></td></tr>
+<tr><td>dump 预测 token</td><td><code>scripts/gr00t_dump_pred_tokens.py --keys ...</code> → <code>datasets/sonic_vla_pred_flow3/</code></td></tr>
+<tr><td>flow3 离线 loop</td><td><code>scripts/build_flow3_sequence.py</code> + <code>scripts/gear_sonic_flow3.sh</code></td></tr>
+<tr><td>flow3 live 实时</td><td><code>scripts/gear_sonic_live_demo.sh @flow3</code> + <code>gr00t_build_sequence.py</code> + <code>sonic_demo_flows.json</code></td></tr>
+<tr><td>逐窗口/flow3 GUI</td><td><code>LAFAN.ipynb</code>（8 单窗口 + 🔁离线 + 🛰️live + 停止）</td></tr>
+</table>
+
+<p class="small" style="margin-top:2em;border-top:1px solid #e2e8f0;padding-top:12px">
+关联文档:<code>groot_sonic_wbc_route.html</code>(架构总览 + derisk 复盘)、<code>sonic_lafan_expansion.html</code>(LAFAN 扩容 + 物理规律 fight GO/jumps NO)、<code>sonic_action_sequencing.html</code>(动作串联 + 三时钟调试)。<br>
+生成于 2026-06-10。<span class="en">SONIC-VLA flow3 — principle & dataset pipeline.</span>
+</p>
+
+</body>
+</html>

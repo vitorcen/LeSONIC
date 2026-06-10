@@ -65,6 +65,12 @@ declare -A KEY=(
   [macarena]=macarena_001__A545        [kick]=neutral_kick_R_001__A543
   [squat]=squat_001__A359              [jump]=tired_one_leg_jumping_R_001__A359
   [walk]=walking_quip_360_R_002__A428
+  [guard]=fight_seg000 [jab]=fight_seg020 [combo]=fight_seg050
+  [turn]=run_seg001 [jog]=run_seg006 [runfast]=run_seg017 [fight]=lafan_fight_15s
+  # flow3 windows — set PKL=data/seg_flow3_all.pkl PRED_DIR=datasets/sonic_vla_pred_flow3
+  [combat]=fight_combat_combo_kicks [block]=fight_block_pushkick_shove [fierce]=fight_fierce_swings
+  [jogback]=run_jog_backward [sprint]=run_sprint_backpedal [circle]=run_circle
+  [moonwalk]=dance_moonwalk [spinclap]=dance_spin_stepback_clap
 )
 
 SEQ="${1:-${MOTION:-squat,lunge,macarena}}"

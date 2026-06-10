@@ -20,5 +20,17 @@
       {"motion": "lunge",    "steps": 160},
       {"motion": "walk",     "steps": 240, "full_bootstrap": true}
     ]
+  },
+
+  "flow3": {
+    "desc": "flow3 LAFAN hand-picked windows, user order fight1->run3->fight2->run2->dance1->run1, looping. LIVE GR00T (outputs/gr00t_sonic_flow3): each window starts mid-action (one-shot) so it gets a short bootstrap to ENTER the move, then hands to live GR00T inference. One-shot windows may settle toward standing after entry (the known no-memory limitation); the offline gear_sonic_flow3.sh loop is the guaranteed-smooth version. Add full_bootstrap:true to a segment to replay it whole (continuous, but not live). Requires GR00T_CKPT=outputs/gr00t_sonic_flow3/checkpoint-6000 PKL=data/seg_flow3_all.pkl PRED_DIR=datasets/sonic_vla_pred_flow3.",
+    "segments": [
+      {"motion": "block",    "steps": 542},
+      {"motion": "circle",   "steps": 749},
+      {"motion": "combat",   "steps": 749},
+      {"motion": "sprint",   "steps": 749},
+      {"motion": "moonwalk", "steps": 999},
+      {"motion": "jogback",  "steps": 749}
+    ]
   }
 }

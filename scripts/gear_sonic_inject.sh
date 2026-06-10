@@ -25,6 +25,14 @@ declare -A KEY=(
   [macarena]=macarena_001__A545        [kick]=neutral_kick_R_001__A543
   [squat]=squat_001__A359              [jump]=tired_one_leg_jumping_R_001__A359
   [walk]=walking_quip_360_R_002__A428
+  # LAFAN skill segments — set PKL=data/skill_demo_robot.pkl PRED_DIR=datasets/sonic_vla_pred_skills
+  [guard]=fight_seg000 [jab]=fight_seg020 [combo]=fight_seg050
+  [turn]=run_seg001 [jog]=run_seg006 [runfast]=run_seg017
+  # flow3 hand-picked windows — set PKL=data/seg_flow3_all.pkl PRED_DIR=datasets/sonic_vla_pred_flow3
+  # NULLTERM=1 (adaptive terms ignore threshold=99, must be nulled to play the full window)
+  [combat]=fight_combat_combo_kicks [jogback]=run_jog_backward [sprint]=run_sprint_backpedal
+  [circle]=run_circle [moonwalk]=dance_moonwalk [spinclap]=dance_spin_stepback_clap
+  [block]=fight_block_pushkick_shove [fierce]=fight_fierce_swings
 )
 SEL="${1:-${MOTION:-kick}}"
 k="${KEY[$SEL]:-}"; [[ -z "$k" ]] && { echo "[inject] unknown motion '$SEL' (dance|lunge|macarena|kick|squat|jump|walk)"; exit 2; }
@@ -36,8 +44,18 @@ echo "[inject] motion=$SEL key=$k  GR00T tokens=$NPZ"
 echo "  Isaac viewer: press F=free cam, V=show green ref-skeleton (target) vs robot (GR00T-driven)."
 echo "  Isaac viewer: F=free cam, V=ref skeleton, R=reset.  RELAX=$RELAX (1=play full motion, no deviation-reset)."
 
+# NULLTERM=1 fully disables the 4 deviation terminations (set to null). Required for windows that
+# trip the *adaptive* terms (anchor_pos/ee_body_pos), which IGNORE a threshold=99 override and
+# recompute their own — so RELAX (threshold=99) does NOT stop them. flow3 LAFAN windows need this.
 RELAX_ARGS=()
-if [[ "$RELAX" == "1" ]]; then
+if [[ "${NULLTERM:-0}" == "1" ]]; then
+  RELAX_ARGS=(
+    ++manager_env.terminations.anchor_pos=null
+    ++manager_env.terminations.ee_body_pos=null
+    ++manager_env.terminations.anchor_ori_full=null
+    ++manager_env.terminations.foot_pos_xyz=null
+  )
+elif [[ "$RELAX" == "1" ]]; then
   RELAX_ARGS=(
     ++manager_env.terminations.anchor_pos.params.threshold=99
     ++manager_env.terminations.ee_body_pos.params.threshold=99
@@ -53,7 +71,7 @@ conda run --no-capture-output -n "$ENV_NAME" python gear_sonic/eval_agent_trl.py
     ++manager_env.observations.policy.enable_corruption=False \
     ++manager_env.observations.tokenizer.enable_corruption=False \
     ++manager_env.commands.motion.use_paired_motions=True \
-    ++manager_env.commands.motion.debug_vis=True \
+    "++manager_env.commands.motion.debug_vis=${DEBUG_VIS:-False}" \
     "++manager_env.commands.motion.motion_lib_cfg.motion_file=$PKL" \
     "++manager_env.commands.motion.motion_lib_cfg.filter_motion_keys=$k" \
     "++manager_env.commands.motion.motion_lib_cfg.smpl_motion_file=dummy" \

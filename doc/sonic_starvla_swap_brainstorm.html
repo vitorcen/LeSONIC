@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StarVLA-PI_v3 能否替换 GR00T 做 SONIC 全身动作 — 三模型联合头脑风暴</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #fafafa;
+  --fg: #1a1a1a;
+  --muted: #555;
+  --border: #d4d4d4;
+  --accent: #76b900;
+  --accent-dark: #4a7400;
+  --code-bg: #f1f3f4;
+  --table-head: #f0f5e8;
+  --warn: #b35900;
+  --blue: #2b6cb0;
+  --red: #c0392b;
+}
+* { box-sizing: border-box; }
+html { background: #fff; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.65;
+}
+.container { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
+header { border-bottom: 3px solid var(--accent); padding-bottom: 16px; margin-bottom: 28px; }
+header .tag { display: inline-block; background: var(--accent); color: #fff; padding: 2px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+h1 { font-size: 25px; margin: 4px 0 8px; }
+header .sub { color: var(--muted); font-size: 14px; }
+h2 { font-size: 21px; margin: 38px 0 12px; padding-left: 10px; border-left: 4px solid var(--accent); }
+h3 { font-size: 16px; margin: 22px 0 8px; color: var(--accent-dark); }
+p, li, td, th { font-size: 14.5px; }
+code { background: var(--code-bg); color: #1a1a1a; padding: 2px 6px; border-radius: 3px; font-family: "SFMono-Regular", Consolas, Menlo, monospace; font-size: 13px; }
+pre { background: var(--code-bg); color: #1a1a1a; border: 1px solid var(--border); border-radius: 4px; padding: 12px 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+pre code { background: transparent; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 14px 0; background: #fff; color: var(--fg); }
+th, td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; vertical-align: top; }
+th { background: var(--table-head); font-weight: 600; }
+.tldr { background: #f0f5e8; border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: 4px; padding: 14px 18px; margin: 18px 0; }
+.warn { background: #fff6ec; border: 1px solid var(--warn); border-left: 4px solid var(--warn); border-radius: 4px; padding: 12px 16px; margin: 16px 0; }
+.bad { background: #fdecea; border: 1px solid var(--red); border-left: 4px solid var(--red); border-radius: 4px; padding: 12px 16px; margin: 16px 0; }
+.good { background: #f0f5e8; border: 1px solid var(--accent); border-left: 4px solid var(--accent); border-radius: 4px; padding: 12px 16px; margin: 16px 0; }
+.en { color: var(--muted); font-style: italic; font-size: 13.5px; }
+.fig { background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 14px; margin: 18px 0; text-align: center; }
+.fig svg { background: #fff; }
+.fig figcaption { color: var(--muted); font-size: 13px; margin-top: 8px; }
+ul, ol { padding-left: 22px; }
+li { margin: 4px 0; }
+.k { color: var(--accent-dark); font-weight: 600; }
+.x { color: var(--red); font-weight: 600; }
+.ok { color: var(--accent-dark); font-weight: 600; }
+hr { border: none; border-top: 1px solid var(--border); margin: 30px 0; }
+.small { font-size: 13px; color: var(--muted); }
+.who { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 12px; font-weight: 600; }
+.w-opus { background: #eef4fb; color: #2b6cb0; }
+.w-codex { background: #f0f5e8; color: #4a7400; }
+.w-mimo { background: #fdecea; color: #c0392b; }
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <span class="tag">LeSONIC · 架构侧 / Architecture route</span>
+  <h1>StarVLA-Qwen3.5-4B-PI_v3 能否替换 GR00T N1.7 做 SONIC 全身动作?</h1>
+  <div class="sub">Can StarVLA replace GR00T as the SONIC token producer? — 三模型联合头脑风暴 (Opus 4.8 + codex gpt-5.5 + mimo-v2.5-pro) · 2026-06-09</div>
+</header>
+
+<div class="tldr">
+<strong>TL;DR</strong> — <strong>接口上能换,但这是一次<span class="x">横向移动 (lateral move)</span>,不是修复</strong>。三模型独立结论一致:替换骨干<strong>修不了已知 3 个缺陷里的任何一个</strong>,因为真瓶颈在 <strong>动作头的离散损失</strong>(把 FSQ 离散码当连续回归)和 <strong>观测空间缺记忆/相位</strong>,这两者<strong>都与 VLM 骨干无关</strong>。
+<br><span class="en">You <em>can</em> swap it in, but it's a lateral move: it fixes 0 of the 3 known flaws because the real bottleneck is the head's loss (continuous regression on a discrete FSQ target) and the memory-less observation space — both orthogonal to the VLM backbone.</span>
+<br><br>
+<strong>裁决 / Verdict</strong>:仅当把它当作 ① <strong>干净的 A/B 基线</strong>(同一冻结 WBC 下对比 GR00T vs StarVLA)或 ② <strong>顺手实现 FSQ-aware 损失</strong>的载体,才值得做。<strong>不要</strong>把"换骨干"本身当成能力提升。<span class="w-mimo who">mimo</span> 更激进:<strong>直接 skip</strong>,先在 GR00T 上修 head + obs。
+</div>
+
+<h2>1 · 问题 / The question</h2>
+<p>
+我们已经训过 <code>StarVLA-Qwen3.5-4B-PI_v3-PickOrange</code>(SO-101 单臂抓橙子,strict 20-round = 35%)。自然的想法:既然有这套 StarVLA 训练/serving 基建,能不能<strong>把同一个 PI_v3 模型训成 SONIC 的 token 生产者</strong>,替掉 GR00T N1.7,喂同一个冻结 GEAR-SONIC WBC,做出一样的<a href="sonic_action_sequencing.html">串联动作</a>(蹲→走→踢→舞,循环)?
+</p>
+<p>
+SONIC 管线天然分成<strong>两半</strong>:可替换的 <span class="k">token 生产者</span> + 固定的 <span class="k">冻结 WBC 解码器</span>。GR00T 只是当前的 token 生产者。<strong>任何能在正确节奏吐出合法 64 维 FSQ token 的模型都能接线驱动 decoder</strong> —— 这正是注入器 hook 的设计(<code>actor_module.decode("g1_dyn", {token_flattened, proprioception})</code> 被外部 token 覆盖)。<strong>但"合法 token"是必要非充分</strong>:序列时序、相位、proprio 兼容性、token 是否落在 WBC latent 流形上,决定动作稳不稳。所以"接口能不能接"答案是<strong>能,且 trivial</strong>。真问题是<strong>换了有没有用</strong>。
+</p>
+
+<div class="fig">
+<svg width="900" height="210" viewBox="0 0 900 210" xmlns="http://www.w3.org/2000/svg" style="background:#fff">
+  <rect x="0" y="0" width="900" height="210" fill="#ffffff"/>
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#888"/></marker>
+  </defs>
+  <g font-family="sans-serif" font-size="12.5">
+    <!-- producers -->
+    <rect x="20" y="30" width="180" height="44" rx="5" fill="#eef4fb" stroke="#2b6cb0"/>
+    <text x="110" y="50" text-anchor="middle" fill="#1a1a1a" font-weight="600">GR00T N1.7</text>
+    <text x="110" y="66" text-anchor="middle" fill="#555" font-size="11">Cosmos-2B + flow-DiT (现行)</text>
+    <rect x="20" y="92" width="180" height="44" rx="5" fill="#fdecea" stroke="#c0392b" stroke-dasharray="5 3"/>
+    <text x="110" y="112" text-anchor="middle" fill="#1a1a1a" font-weight="600">StarVLA-PI_v3</text>
+    <text x="110" y="128" text-anchor="middle" fill="#555" font-size="11">Qwen3-VL-4B + flow-DiT (候选?)</text>
+    <text x="110" y="158" text-anchor="middle" fill="#2b6cb0" font-size="12">可替换 token 生产者 / swappable</text>
+    <!-- arrow -->
+    <path d="M205 92 h70" stroke="#888" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+    <text x="245" y="84" text-anchor="middle" fill="#555" font-size="11">64-d FSQ</text>
+    <text x="245" y="110" text-anchor="middle" fill="#555" font-size="11">token</text>
+    <!-- frozen boundary -->
+    <rect x="285" y="50" width="300" height="110" rx="6" fill="#f0f5e8" stroke="#76b900" stroke-width="2"/>
+    <text x="435" y="74" text-anchor="middle" fill="#1a1a1a" font-weight="600">冻结 GEAR-SONIC WBC</text>
+    <text x="435" y="92" text-anchor="middle" fill="#555" font-size="11">decode(token, proprio) @50Hz</text>
+    <text x="435" y="118" text-anchor="middle" fill="#4a7400" font-size="11">平衡 / 跟踪 / recovery 底座</text>
+    <text x="435" y="136" text-anchor="middle" fill="#4a7400" font-size="11">FIXED — 换不换骨干它都不变</text>
+    <!-- robot -->
+    <path d="M590 105 h60" stroke="#888" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+    <rect x="660" y="82" width="150" height="46" rx="5" fill="#fff" stroke="#d4d4d4"/>
+    <text x="735" y="103" text-anchor="middle" fill="#1a1a1a" font-weight="600">G1 29-DoF</text>
+    <text x="735" y="120" text-anchor="middle" fill="#555" font-size="11">physics-driven</text>
+  </g>
+</svg>
+<figcaption>SONIC = 可替换 token 生产者 + 固定冻结 WBC。换 GR00T→StarVLA 只动左上角那一块;机器人站在<strong>同一个冻结 WBC</strong> 上,所以"不摔/平衡/跟踪"全不变。</figcaption>
+</div>
+
+<h2>2 · 三模型独立结论 / Three independent verdicts</h2>
+<p>Opus 先给分析,再用 tmux 起 <code>codex exec -m gpt-5.5</code> 与 <code>opencode run -m xiaomi/mimo-v2.5-pro</code> 各自独立批判(同一份 brief,互不可见)。三方<strong>强收敛</strong>:</p>
+<table>
+<tr><th>维度 / Dimension</th><th><span class="who w-opus">Opus 4.8</span></th><th><span class="who w-codex">codex gpt-5.5</span></th><th><span class="who w-mimo">mimo-v2.5-pro</span></th></tr>
+<tr><td>接口能换?</td><td class="ok">能 (trivial)</td><td class="ok">能 (机械上简单)</td><td class="ok">能</td></tr>
+<tr><td>flow 头修 FSQ 离散罪?</td><td class="x">否,同一原罪</td><td class="x">否,可能更糟(落网格间=garbage latent)</td><td class="x">否,源码证同一 MSE-on-velocity 罪</td></tr>
+<tr><td>修了 3 缺陷里几个?</td><td class="x">0 / 3,全继承</td><td class="x">0 / 3,全继承</td><td class="x">0 / 3,全继承</td></tr>
+<tr><td>Qwen3-VL 视觉?</td><td class="x">浪费(看地面)</td><td class="x">浪费,甚至添噪</td><td class="x">浪费(7 prompt 不需要 4B)</td></tr>
+<tr><td>总体性质</td><td>横向 + A/B 价值</td><td>横向;<strong>值得当 A/B 基线 / 修 #2 载体</strong></td><td><strong>横向;直接 skip,先修 head+obs</strong></td></tr>
+</table>
+
+<h2>3 · 输出空间:同一个连续回归原罪 / Same continuous-regression sin</h2>
+<p>
+这是<strong>所有人都认定的核心盲点</strong>。GR00T 和 StarVLA-PI_v3 <strong>都是 flow-matching 连续回归头</strong>。把 GR00T 换成 PI_v3 的头,<strong>不是</strong>对 FSQ 离散目标的修复 —— 是<strong>同一个把离散量化码当连续欧氏回归的罪</strong>。
+</p>
+<p><span class="who w-mimo">mimo</span> 直接翻了源码坐实:</p>
+<pre><code># StarVLA flow-matching 头 (LayerwiseFM_ActionHeader.py / GR00T_ActionHeader.py)
+loss = ((pred_actions - velocity) ** 2).mean()   # MSE-on-velocity,连续目标
+# predict_action():从高斯噪声 Euler 积分去噪 → 输出连续值,落在 FSQ 网格点【之间】
+# GR00T N1.7 的 DiT flow 头同款连续回归(各自 action_head 路径,非同一文件)</code></pre>
+<p class="small">注:行号随版本漂移,此处只标文件;上面是 StarVLA 的 head,GR00T N1.7 是各自的 action_head 路径,但<strong>损失形式同款连续回归</strong>。</p>
+<p>
+<strong>flow-matching 的多峰性帮不上忙</strong>:这份监督数据对给定 (prompt, proprio) <strong>每个动作只录了一条 token 轨迹</strong> —— 即便真实动作存在相位/步幅/微风格上的多峰,<strong>数据里未被观测到,也不是瓶颈</strong>。多峰能力(如"伸左手 OR 伸右手")在这里无从发挥。<span class="who w-codex">codex</span> 还补了一刀:落在网格点之间<strong>未必</strong>意味"中间动作",更可能是 <strong>decoder 没训练过的 latent garbage</strong>,反而比 GR00T 漂得更狠。
+</p>
+<div class="warn">
+<strong>所以 flaw #2 真正的修法与骨干无关</strong>:① 每维 <strong>交叉熵</strong>(对<strong>观测到的 snap 网格值 bin</strong> 分类;若抽到 SONIC 原生 quantizer 索引则可能是 32 级 FSQ,不是 17)② 预测 <strong>pre-quant 连续 latent</strong> 再过 SONIC 自己的 FSQ quantizer。这两刀在 <strong>GR00T 上一样能做</strong> —— StarVLA 在这点上<strong>没有特权</strong>。我们现有的推理侧 <code>snap-to-grid</code>(<code>SONIC_SNAP_GRID</code>)对两个骨干<strong>同样适用</strong>。
+<br><span class="en">The real fix for flaw #2 is a loss change (per-dim CE / pre-quant latent), doable on GR00T too — StarVLA is not privileged here.</span>
+</div>
+
+<h2>4 · 三个已知缺陷全部继承 / All 3 flaws inherited</h2>
+<table>
+<tr><th>缺陷 / Flaw</th><th>StarVLA 修了吗?</th><th>为什么 / Why</th></tr>
+<tr><td><strong>#1 无 held-out</strong><br><span class="small">MSE 0.0011 = 记忆误差</span></td><td class="x">否</td><td>数据/评测纪律问题,与骨干无关。7 动作×1ep,换更大 VLM 也只是<strong>换一种方式记忆</strong>。</td></tr>
+<tr><td><strong>#2 FSQ 当连续回归</strong></td><td class="x">否</td><td>两者都是 flow-matching 连续头(见 §3)。只有改损失才治,<strong>不由换骨干触发</strong>。</td></tr>
+<tr><td><strong>#3 无记忆单帧策略</strong><br><span class="small">从静止启不动 kick/walk</span></td><td class="x">否</td><td>StarVLA <strong>也是</strong>单帧 obs→action chunk。<code>QwenPI_v3.forward()</code> 吃单帧图 + 当前 proprio,无 history buffer、无 phase clock。PI_v3 的 <code>add_discretized_state_to_instruction</code> 只把<strong>当前</strong> proprio 分箱成文本 token,<strong>不编码历史</strong>。一次性动作仍需 bootstrap 拐杖。</td></tr>
+</table>
+<p class="small">缺失的变量是<strong>时间状态 (temporal state)</strong>,不是<strong>语义容量 (semantic capacity)</strong>。更强的 VLM 改变不了这点。<strong>StarVLA 仍可能因优化/头架构差异改变次级行为</strong>(收敛速度、过拟合形态、off-grid 分布),但这<strong>不触及上述三个根因</strong>。</p>
+
+<h2>5 · Plumbing 断点 / Concrete breaking points</h2>
+<p>真要接,需要一个 <code>UNITREE_G1_SONIC</code> StarVLA embodiment config。会踩的坑(三方汇总):</p>
+<table>
+<tr><th>坑 / Trap</th><th>细节</th></tr>
+<tr><td><strong>归一化陷阱</strong><br><span class="small">最容易出 silent bug</span></td><td>StarVLA dataloader 默认 <strong>q99 / min-max 归一化</strong>。FSQ token 已经在 <code>k/16, k∈[-8,8]</code> 即 <code>[-0.5,0.5]</code> 均匀网格上。统计派生的 q99/minmax <strong>会移动每维 bin 中心/边界</strong>(除非把 stats 强制对齐已知 token scale):若 server 端反归一化与训练侧 stats 稍有不一致,<strong>snap-to-grid 就落错格</strong>。两个安全选项要<strong>明确选一个并对齐逆变换</strong>:① <code>identity</code>(目标留在 <code>[-0.5,0.5]</code>,head/server 都不缩放)② <code>token/0.5</code>(把 <code>[-0.5,0.5]</code> 缩到 <code>[-1,1]</code>,推理后必须 ×0.5 还原再 snap)。并 log: 模型前/后、反归一化后的 min/max + off-grid 比例 + 出界比例 + 每维 snapped-code 直方图。</td></tr>
+<tr><td><strong>action_horizon 16→40</strong></td><td>PI_v3 默认 16,SONIC WBC 吃 40 步 chunk。拉到 40 = DiT 序列 <strong>2.5× 长</strong>(自注意力部分约二次方于序列长;总步耗还含 VLM/cross-attn/MLP,非整体二次方),且想迁移的 Bridge/RT-1 预训练头是在更短 horizon 训的 → <strong>权重错位,是真回归风险</strong>(<span class="who w-mimo">mimo</span>)。公平对比必须直接训 horizon 40。</td></tr>
+<tr><td><strong>action 不是关节</strong></td><td>输出是 64 维 <strong>WBC latent token</strong>,不是 motor 关节。必须 bypass:motor-deg→弧度转换、关节归一化、arm 任务继承的 action clipping、gripper/mask 约定、delta-action 约定。<code>StarVLAServicePolicyClient</code> 需新分支不做后处理。</td></tr>
+<tr><td><strong>state pathway 变了</strong></td><td>PI_v3 可经<strong>当前 state encoder</strong> 和/或把 proprio 分箱成<strong>文本 token</strong> 拼进指令(<code>[STATE] 95 133 … [ACTION]</code>)条件化 —— <strong>两条都只编码当前帧,不含历史/相位</strong>。29-DoF + projected_gravity = 32 维要新建 embodiment 归一化器(SO-101/Bridge 的没法用)。非 blocker,但影响 prompt→token 映射。</td></tr>
+<tr><td><strong>单相机</strong></td><td>SONIC 只有 ego_view(480×640);StarVLA SO-101 是 front+wrist 双相机。需新 <code>data_config.py</code> 单相机。<code>_pack_sample</code> 的 448 resize 仍适用(480×640→448 损失比 SO-101 的 224→448 小)。</td></tr>
+</table>
+
+<h2>6 · 视觉浪费 + 语言 grounding / Vision wasted</h2>
+<p>
+ego 相机 attach 到 pelvis <strong>朝下看地面</strong>,对动作判别<strong>视觉信号大概率 ≈ 0</strong>(<strong>需 vision-off / proprio-only ablation 才是实测断言,目前是强先验</strong>)—— prompt + proprio 应驱动一切。果真如此,Qwen3-VL 更强的视觉编码器在"每个动作都看同一片灰地面"时<strong>用武之地极小</strong>,甚至(<span class="who w-codex">codex</span>)在光照/地面纹理变化时<strong>引入无关 nuisance 特征</strong>。
+</p>
+<p>
+<strong>语言侧呢?</strong>Qwen3-VL-4B 确实比 Cosmos-Reason2-2B 强,但 prompt 空间<strong>只有 7 个固定串</strong>("do a squat" / "perform macarena" …),本质是 <strong>7-way 分类</strong>。Cosmos-2B 的语言 grounding 已经够。只有当 SONIC <strong>scale 到几百个多样自然语言 prompt</strong>(改写、组合、"squat then kick while waving")时,Qwen3-VL 的语言能力才值钱 —— 那是<strong>未来的数据-scaling 论点,不是今天的架构论点</strong>。
+</p>
+
+<h2>7 · 真实收益 vs 损失 / Honest payoff</h2>
+<table>
+<tr><th>维度</th><th>GR00T N1.7</th><th>StarVLA PI_v3</th><th>谁赢</th></tr>
+<tr><td>VLM 质量</td><td>Cosmos-Reason2-2B</td><td>Qwen3-VL-4B</td><td>StarVLA(但被地面相机 + 7 prompt 浪费)</td></tr>
+<tr><td>动作头</td><td>flow-matching DiT</td><td>layer-wise cross-DiT flow</td><td>平(同一原罪)</td></tr>
+<tr><td><strong>机器人预训练 base</strong></td><td>N1.7-3B(<strong>目标 GR00T 架构上的机器人预训练 base</strong>)</td><td>Qwen3VL-PI_v3-Bridge-RT_1(69.8)</td><td class="ok"><strong>GR00T 赢</strong> — StarVLA base 是 SimplerEnv/WidowX-style EEF 动作空间,与 64 维 token 不匹配,头无论如何要 reinit,<strong>action-head 迁移红利大半丢失</strong></td></tr>
+<tr><td>action_horizon</td><td>40(原生)</td><td>16(要拉到 40)</td><td class="ok">GR00T 赢</td></tr>
+<tr><td>3 缺陷</td><td>全有</td><td>全继承</td><td>平</td></tr>
+<tr><td>代码统一</td><td>独立 GR00T 栈</td><td>与 PickOrange 共享 StarVLA 基建</td><td class="ok">StarVLA 赢(但只 ~200 行 server boilerplate;embodiment/数据/eval 各不同)</td></tr>
+</table>
+<div class="bad">
+<strong>最大的隐性损失</strong>:换 StarVLA = <strong>放弃 GR00T 的机器人预训练 base</strong>。N1.7-3B 是<strong>目标 GR00T 架构上的机器人预训练 base</strong>;StarVLA 的 Bridge/RT-1 base 动作空间不同(WidowX-style EEF vs 64 维 token),头要重初始化 —— <strong>action-head 迁移红利对这个任务大半丢失</strong>(VLM/视觉-语言特征仍可能迁移,但那不是这里的瓶颈)。
+</div>
+
+<h2>8 · 盲点 / Blind spots</h2>
+<ol>
+<li><span class="who w-codex">codex</span> <strong>非-VLA baseline 拷问</strong>:既然视觉≈0,先跑一个<strong>极小非 VLA</strong> baseline ——<br>
+<code>prompt-ID + proprio (+phase) → MLP/Transformer → 40×64 token chunk</code>。<br>
+<strong>如果它打平 StarVLA,那这次换骨干就只是基建工作、不是模型进步</strong>。这是必须先排除的对照。</li>
+<li><span class="who w-codex">codex</span> <strong>scripted scaffold 拷问</strong>:串联序列能成,<strong>主要是时间线注入器 + bootstrap token 的功劳,不是学到了"串联"</strong>。策略只是在一个外部脚手架(换 prompt + 喂 bootstrap)里填局部 chunk。换骨干不改变这点。</li>
+<li><span class="who w-mimo">mimo</span> <strong>层次错位拷问</strong>:你在优化<strong>骨干 (VLM)</strong>,而瓶颈在 <strong>头(离散目标上的连续回归)+ obs 空间(无记忆)</strong>。换 VLM 是<strong>最贵、对真实失败模式影响最小</strong>的改动。先修便宜的。</li>
+<li><span class="who w-codex">codex</span> <strong>真正的接口</strong>不是"VLA 控制机器人",而是 <strong>"VLA 为冻结 WBC 挑选 latent 参考"</strong>。核心科研问题不是"Qwen3-VL 是否更会机器人",而是 <strong>"你的 token 分布是不是 SONIC decoder 的忠实控制语言"</strong> —— 离散码保真度、相位可观测性、WBC latent 流形覆盖率,都比 VLM 大小重要。</li>
+<li><span class="who w-codex">codex</span> <strong>WBC 可行性在 VLA 上游</strong>:即便 token 预测完美,<strong>WBC 也执行不了它冻结 decoder 稳定流形之外的动作</strong>。判 StarVLA 之前要先过 <strong>严格终止(RELAX 关)下的 WBC 跟踪筛查</strong> —— 这道闸门与换不换骨干无关,是动作本身能不能被这个 WBC 跟住。</li>
+<li><span class="who w-codex">codex</span> <strong>chunk 边界 / 相位重置</strong>:horizon-40 预测可能 <strong>MSE 好看,却在段落起点 / prompt 切换处崩</strong>(无相位/历史)。评测指标必须含 <strong>prompt 切换后头 N 步误差 + chunk 边界不连续度</strong>,不能只看整段 MSE。</li>
+</ol>
+
+<h2>9 · 最便宜的 go/no-go 实验 / Cheapest experiment</h2>
+<p>三方一致:<strong>别从 live Isaac rollout 起步</strong>。先离线 token 生产者测试。</p>
+<ol>
+<li><strong>实验 A — 离线过拟合 sanity</strong>:复用现成 <code>wsagi/SONIC-VLA-BonesSeed</code>,写 <code>UNITREE_G1_SONIC</code> data_config(action=64 token / video=ego_view / state=29+gravity),冻 VLM 训 PI_v3 头,horizon=40,<strong>显式 token 归一化</strong>,推理 snap-to-grid,跑 ~500-2000 步。报告<strong>不只 MSE</strong>:连续 MSE + snapped MSE + 每维 FSQ bin 准确率 + off-grid 比例 + 出界比例 + 每动作 + <strong>chunk 边界不连续度 + prompt 切换后头 N 步误差</strong>。</li>
+<li><strong>实验 B — 真正的 held-out</strong>:7×1ep 下帧级随机切分是<strong>假的</strong>。用 LOMO(留 1 动作整 ep)/ 每动作留后半段 / prompt 改写 / transition 边界。</li>
+<li><strong>实验 C — 最小 Isaac rollout</strong>:先 <code>squat→dance→macarena</code>(自持,免 bootstrap),再 <code>squat→walk→kick→dance</code>(用与 GR00T 同款 bootstrap 拐杖)。</li>
+</ol>
+<div class="warn">
+<strong>预测(三方一致)</strong>:它<strong>会学会</strong>(loss 降、MSE 破 per-motion-mean 基线 0.039),因为 7-way 记忆很容易。<strong>但这什么也没证明</strong> —— go/no-go 信号不是"它能不能学",而是"它学得<strong>比 GR00T 好</strong>吗"。<strong>先验强烈倾向"否"</strong>(同一原罪 + 更差的预训练 base + 拉伸的 horizon + 浪费的视觉),但<strong>只有真跑 A/B 才能证</strong>。
+</div>
+
+<h2>10 · 裁决 + 正确的下一步 / Verdict &amp; what to do instead</h2>
+<div class="bad">
+<strong>❌ 按"换骨干求提升"来做 = 不值得</strong>。它修 0/3 缺陷、浪费 Qwen3-VL 视觉、放弃 GR00T 预训练 base、拉伸 horizon 2.5×,只换来 ~200 行代码统一,却把同样 3 个缺陷换个骨干名字写进 model card。
+</div>
+<div class="good">
+<strong>✅ 真要做,只在这两种 framing 下值得:</strong>
+<ol>
+<li><strong>干净的 A/B 基线</strong>:同一冻结 WBC + 同一数据下,StarVLA 若打平 GR00T → 科学上有用的<strong>负面结果</strong>(证明瓶颈是数据+obs,不是模型家族,堵死"换更好的 VLA 就行"的幻想)。诚实结论只能是 <em>"StarVLA 可作 SONIC 冻结 WBC 的 drop-in 连续 token 生产者"</em>,<strong>不能</strong>说 <em>"StarVLA 提升了 prompt 驱动全身控制"</em>。</li>
+<li><strong>修 flaw #2 的载体</strong>:如果换骨干的同时<strong>立刻</strong>改成 per-dim CE / pre-quant latent 损失,才有增量价值。</li>
+</ol>
+</div>
+<p><strong>更该先做的(按 ROI 排序,全在 GR00T 上,零骨干改动)</strong>:</p>
+<ol>
+<li><span class="k">先修 flaw #2</span> —— per-dim 交叉熵 / pre-quant latent,<strong>只重训头</strong>。P0 roadmap 已列。</li>
+<li><span class="k">再修 flaw #3</span> —— obs history + phase clock,<strong>只改 obs 空间</strong>。</li>
+<li><span class="k">然后</span>才谈骨干 A/B —— 等有了能真正压榨头容量的干净 baseline,再有意义地对比 Cosmos-2B vs Qwen3-VL。</li>
+</ol>
+<p class="small">
+<strong>一个例外</strong>:若计划把 SONIC scale 到几百个多样自然语言 prompt(组合 / 改写 / "squat then kick while waving"),则 Qwen3-VL 的语言 grounding 变得有价值 —— 但那是<strong>未来数据-scaling 论点,不是今天的架构论点</strong>。
+</p>
+
+<hr>
+<p class="small">
+关联文档:<a href="groot_sonic_wbc_route.html">架构侧路线总览</a> · <a href="sonic_vla_critique_roadmap.html">三模型联合评审 + P0-P4 roadmap</a> · <a href="sonic_action_sequencing.html">动作串联</a> · <a href="sonic_lafan_expansion.html">LAFAN 扩容</a>。<br>
+头脑风暴:Claude Opus 4.8 + codex gpt-5.5 + mimo-v2.5-pro,各自独立批判同一份 brief 后合并 · 2026-06-09。<strong>本文经 codex gpt-5.5 复审</strong>(18 点 punch-list:FSQ bin/CE 级数、归一化数学、horizon 算力、预训练血缘措辞、+2 盲点 WBC 可行性闸门 / chunk 边界相位,均已采纳;裁决"横向移动·非修复"复审确认不软化)。
+</p>
+</div>
+</body>
+</html>

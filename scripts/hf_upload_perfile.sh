@@ -6,7 +6,7 @@
 # only flips once the bf16 shards are present.
 set -uo pipefail
 
-REPO="wsagi/GR00T-N1.7-G1-SONIC"
+REPO="wsagi/GR00T-N1.7-G1-SONIC-BonesSeed"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/hf_upload"
 cd "$DIR"
 

@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LAFAN × SONIC-VLA 动作扩容 — 三模型头脑风暴 / Can LAFAN expand the SONIC VLA?</title>
+<style>
+  :root { color-scheme: light; }
+  html { background: #ffffff; }
+  body {
+    background: #ffffff; color: #1a1a1a;
+    font-family: -apple-system, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.7; max-width: 1000px; margin: 0 auto; padding: 32px 24px;
+  }
+  h1 { font-size: 1.75rem; border-bottom: 3px solid #2563eb; padding-bottom: 12px; }
+  h2 { font-size: 1.35rem; margin-top: 2.2em; color: #1e3a8a; border-left: 5px solid #2563eb; padding-left: 12px; }
+  h3 { font-size: 1.1rem; margin-top: 1.6em; color: #1e40af; }
+  .en { color: #555; font-style: italic; font-size: 0.92em; }
+  code { background: #f1f5f9; color: #b91c1c; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px;
+    overflow-x: auto; font-size: 0.85em; line-height: 1.5;
+  }
+  pre code { background: transparent; color: #e2e8f0; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; background: #ffffff; color: #1a1a1a; font-size: 0.92em; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 11px; text-align: left; vertical-align: top; }
+  th { background: #1e3a8a; color: #ffffff; }
+  tr:nth-child(even) td { background: #f8fafc; }
+  .tldr { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 16px 20px; margin: 1.4em 0; }
+  .warn { background: #fef2f2; border: 1px solid #fecaca; border-left: 5px solid #dc2626; border-radius: 8px; padding: 12px 18px; margin: 1.2em 0; }
+  .ok   { background: #f0fdf4; border: 1px solid #bbf7d0; border-left: 5px solid #16a34a; border-radius: 8px; padding: 12px 18px; margin: 1.2em 0; }
+  .note { background: #fffbeb; border: 1px solid #fde68a; border-left: 5px solid #d97706; border-radius: 8px; padding: 12px 18px; margin: 1.2em 0; }
+  .tag { display: inline-block; font-size: 0.75em; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; vertical-align: middle; }
+  .t-red { background: #dc2626; } .t-amber { background: #d97706; } .t-green { background: #16a34a; } .t-blue { background: #2563eb; } .t-gray { background: #64748b; }
+  .quote { border-left: 3px solid #94a3b8; padding-left: 14px; color: #334155; margin: 0.8em 0; font-size: 0.95em; }
+  .quote b { color: #0f172a; }
+  svg { display: block; margin: 1.4em auto; background: #ffffff; max-width: 100%; }
+  ul, ol { padding-left: 1.4em; }
+  li { margin: 0.3em 0; }
+  .small { font-size: 0.85em; color: #64748b; }
+</style>
+</head>
+<body>
+
+<h1>LAFAN × SONIC-VLA 动作扩容能成吗？<br><span class="en">Can LAFAN motions expand the SONIC VLA? — a three-model brainstorm</span></h1>
+<p class="small">LeSONIC · 2026-06-09 · 头脑风暴：Claude Opus 4.8 + Codex GPT-5.5 + MiMo-v2.5-pro（独立评审）· 本文经 Codex 复审</p>
+
+<div class="tldr">
+<b>TL;DR（一句话结论 / one-line verdict）</b><br>
+「<b>融合（fusion）</b>」是错词。MimicKit-G1-LAFAN 是一组 <b>29-DoF DeepMimic PPO 策略</b>（直接吐关节角），
+SONIC-VLA 是 <b>GR00T → 64 维 FSQ token → 冻结 WBC 解码</b>——两者动作空间/架构都不同，<b>权重无法合并</b>。
+LAFAN 唯一的入口是 <b>SONIC 的 token 空间</b>，而它被一道硬闸门卡住：<b>冻结的 WBC 能不能在物理上跟住这个动作</b>。
+GR00T 技术上能吐任意连续 64 维值（decoder 照收），但<b>只有落在 decoder 训练过的 FSQ 流形附近的 token 才会解出稳定有用的动作</b>
+（这正是部署侧要 snap-to-grid 的原因）——所以训 GR00T 去拟合「WBC 跟不住的动作」的 token，得到的也只是不稳的行为。<br>
+<span class="en">"Fusion" is the wrong frame. The MimicKit policy (joint-space PPO) cannot be weight-merged into the
+SONIC VLA (FSQ-token + frozen WBC). LAFAN can only enter via SONIC's token space, gated by whether the frozen
+WBC can physically track it. GR00T can emit any continuous token, but only tokens near the decoder's trained
+FSQ manifold produce stable behavior.</span>
+<br><br>
+➡️ <b>2026-06-09 实测更新（见 §6.5）</b>：严格 WBC 跟踪筛查真跑了——<b>LAFAN fight（含高踢腿）全过 ✅</b>（progress 1.0、
+全局漂移 372mm 与 in-dist 同档），<b>jumps 物理上做不出 ❌</b>（放宽终止也偏 2.3m），run/外部 dance 边缘。
+**规律：SONIC WBC 是接地平衡控制器——接地动态动作跟得住，弹道腾空跟不住。** 这<b>部分推翻了「LAFAN 整体跟不住」</b>，
+变成动作类型级的 go/no-go：<b>fight 是已验证可加的 VLA 新动作</b>。<b>当天就走通了完整管线</b>——录 token→8 动作数据集→finetune→
+<b>fight open-loop token MSE 0.0021，落在原 7 动作区间正中（比基线低 18.7×）= fight 已真正进 VLA</b>（详见 §6.5③）。
+唯一悬而未决的仍是闸门② held-out 泛化（对所有动作，是记忆 vs 泛化的真问题）。
+</div>
+
+<h2>0 · 三模型在哪里一致、各自补了什么<br><span class="en">Where the three models converge, and what each added</span></h2>
+<table>
+<tr><th>结论 / Claim</th><th>Opus（我）</th><th>Codex GPT-5.5</th><th>MiMo</th></tr>
+<tr><td>策略权重不可融合，「fusion」是错词</td><td>✅ 提出</td><td>✅ 强化（"no meaningful policy fusion"）</td><td>✅ 同意</td></tr>
+<tr><td>第一步 = <b>严格</b> WBC 跟踪筛查（非 VLA 扩容）</td><td>✅ Route A 的 go/no-go</td><td>✅ 重命名为「WBC capability screening」</td><td>✅ 30 分钟定生死</td></tr>
+<tr><td>❌ 别用 RELAX 跑 go/no-go</td><td>—（我原本默认 RELAX）</td><td>🎯 <b>盲点</b>：RELAX 对筛查是毒药</td><td>✅ 同意</td></tr>
+<tr><td>VLA 无泛化 → 加 LAFAN = 放大查找表</td><td>⚠️ 提了 caveat</td><td>✅ 「more memorized labels」</td><td>🎯 <b>盲点</b>：先过 LOMO 再谈词表</td></tr>
+<tr><td>FSQ 是 <b>32</b> 级不是 16</td><td>❌ 我写错了</td><td>🎯 抓出 num_fsq_levels=32</td><td>🎯 抓出 + 部署 grid 17 值</td></tr>
+<tr><td>第 4 条路 = 扩 <b>WBC</b> 不是扩 VLA（根因修）</td><td>—（漏了）</td><td>✅ 列为「Last」</td><td>🎯 <b>提出 Route D</b></td></tr>
+<tr><td>MimicKit run 仅 63% 跟踪 = 参考本身部分不可行</td><td>—</td><td>—</td><td>🎯 <b>盲点</b>：喂不可行参考→不可行 token</td></tr>
+<tr><td>没有自动「能否跟住」的判据阈值</td><td>—</td><td>✅ 指向 im_eval 指标</td><td>🎯 <b>盲点</b>：要先定阈值</td></tr>
+</table>
+<p class="small">🎯 = 该模型独立发现的、我自己没想到的盲点。三方在「严格筛查优先 / LAFAN 排最后 / fusion 是伪命题」上完全收敛。</p>
+
+<h2>1 · 为什么「融合策略」是伪命题<br><span class="en">Why "fuse the policies" is a non-question</span></h2>
+<p>两个产物的数据结构根本不在一个空间里 —— 这是问题的本质（"好程序员关心数据结构"）：</p>
+
+<svg viewBox="0 0 920 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <rect x="0" y="0" width="920" height="300" fill="#ffffff"/>
+  <!-- SONIC VLA chain -->
+  <text x="20" y="28" font-weight="700" fill="#1e3a8a">SONIC-VLA（架构侧 / token space）</text>
+  <rect x="20" y="42" width="150" height="48" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="95" y="62" text-anchor="middle" fill="#1e3a8a">GR00T N1.7</text>
+  <text x="95" y="80" text-anchor="middle" fill="#475569" font-size="11">prompt+ego+proprio</text>
+  <line x1="170" y1="66" x2="225" y2="66" stroke="#2563eb" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="225" y="42" width="160" height="48" rx="6" fill="#bfdbfe" stroke="#2563eb"/>
+  <text x="305" y="62" text-anchor="middle" fill="#1e3a8a" font-weight="700">64-d FSQ token</text>
+  <text x="305" y="80" text-anchor="middle" fill="#475569" font-size="11">离散码 grid∈[-0.5,0.5]</text>
+  <line x1="385" y1="66" x2="440" y2="66" stroke="#2563eb" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="440" y="42" width="170" height="48" rx="6" fill="#1e3a8a" stroke="#1e3a8a"/>
+  <text x="525" y="60" text-anchor="middle" fill="#fff" font-weight="700">冻结 WBC decode</text>
+  <text x="525" y="78" text-anchor="middle" fill="#cbd5e1" font-size="11">g1_dyn @ 50Hz</text>
+  <line x1="610" y1="66" x2="665" y2="66" stroke="#2563eb" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="665" y="42" width="150" height="48" rx="6" fill="#dbeafe" stroke="#2563eb"/>
+  <text x="740" y="62" text-anchor="middle" fill="#1e3a8a">29-DoF G1 关节</text>
+  <text x="740" y="80" text-anchor="middle" fill="#475569" font-size="11">物理驱动</text>
+
+  <!-- MimicKit chain -->
+  <text x="20" y="155" font-weight="700" fill="#9a3412">MimicKit-G1-LAFAN（数据侧 / joint space）</text>
+  <rect x="20" y="170" width="150" height="48" rx="6" fill="#ffedd5" stroke="#ea580c"/>
+  <text x="95" y="190" text-anchor="middle" fill="#9a3412">DeepMimic PPO</text>
+  <text x="95" y="208" text-anchor="middle" fill="#475569" font-size="11">MLP, per-motion</text>
+  <line x1="170" y1="194" x2="225" y2="194" stroke="#ea580c" stroke-width="2" marker-end="url(#b)"/>
+  <rect x="225" y="170" width="160" height="48" rx="6" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="305" y="190" text-anchor="middle" fill="#9a3412" font-weight="700">29-DoF 关节目标</text>
+  <text x="305" y="208" text-anchor="middle" fill="#475569" font-size="11">直接驱动，自带平衡</text>
+  <line x1="385" y1="194" x2="665" y2="194" stroke="#ea580c" stroke-width="2" marker-end="url(#b)"/>
+  <rect x="665" y="170" width="150" height="48" rx="6" fill="#ffedd5" stroke="#ea580c"/>
+  <text x="740" y="190" text-anchor="middle" fill="#9a3412">29-DoF G1 关节</text>
+  <text x="740" y="208" text-anchor="middle" fill="#475569" font-size="11">物理驱动</text>
+
+  <!-- gap callout -->
+  <rect x="225" y="240" width="385" height="44" rx="6" fill="#fef2f2" stroke="#dc2626" stroke-dasharray="5,3"/>
+  <text x="417" y="258" text-anchor="middle" fill="#991b1b" font-weight="700">不同动作空间 + 不同架构</text>
+  <text x="417" y="275" text-anchor="middle" fill="#991b1b" font-size="11">token ≠ joint，VLA+decoder ≠ PPO-MLP → 权重无法合并</text>
+
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2563eb"/></marker>
+    <marker id="b" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ea580c"/></marker>
+  </defs>
+</svg>
+
+<p>可复用的只有两样东西，<b>都跟 MimicKit 的策略权重无关</b>：</p>
+<ul>
+  <li><b>LAFAN 动作数据本身</b>（公开，retargeted G1 参考已在 HF cache）—— 根本不需要任何策略。</li>
+  <li>（可选）<b>MimicKit 策略当数据生成器</b>：让训好的策略在 sim 里 rollout，得到「物理上可达」的 G1 轨迹，再喂 SONIC。
+  <span class="en">— policy only as a feasibility oracle, never as weights.</span></li>
+</ul>
+
+<h2>2 · 四条可能的路 + 排名<br><span class="en">Four possible routes, ranked</span></h2>
+<table>
+<tr><th>路 / Route</th><th>做法</th><th>是否真扩 VLA</th><th>成本</th><th>排名</th></tr>
+<tr>
+  <td><span class="tag t-blue">A</span> 数据复用</td>
+  <td>LAFAN 参考 → robot_filtered → <b>严格</b> WBC 跟踪筛查 → 过则录 token → finetune GR00T。<u>不用 MimicKit 策略</u>。</td>
+  <td>✅ 是（若过闸门）</td>
+  <td>中（每 clip 1 次 eval + 重训）</td>
+  <td><b>1️⃣ 先做筛查那一步</b></td>
+</tr>
+<tr>
+  <td><span class="tag t-amber">B</span> 策略当数据源</td>
+  <td>MimicKit 策略 rollout → 物理可达轨迹 → SONIC 跟踪 → token。过滤掉不可行参考帧。</td>
+  <td>✅ 是</td>
+  <td>中高（多一道 sim + 风格漂移）</td>
+  <td>3️⃣ 仅当 A 在 raw 参考上失败再用</td>
+</tr>
+<tr>
+  <td><span class="tag t-green">C</span> 双控制器路由</td>
+  <td>SONIC-WBC 与 MimicKit 策略并存，<b>运行时按 prompt 切控制器</b>（复用现有动作串联框架）。</td>
+  <td>❌ 否（两套系统共用机器人）</td>
+  <td>低（最便宜的 demo）</td>
+  <td>2️⃣ 只为「立刻多动作做 demo」</td>
+</tr>
+<tr>
+  <td><span class="tag t-red">D</span> 扩 WBC（根因）</td>
+  <td>LAFAN → 重训/微调 <b>SONIC WBC/tokenizer</b> 本身 → token 空间变大 → 再录 token → finetune GR00T。</td>
+  <td>✅✅ 真正把 token 空间做大</td>
+  <td>最高（Isaac 上 PPO，GPU-hours）</td>
+  <td>4️⃣ 最后；只有前面都不够才碰</td>
+</tr>
+</table>
+
+<div class="warn">
+<b>Codex 的关键纠偏：把 Route A 叫对名字。</b><br>
+A 的第一步<b>不是</b>「扩 VLA」，而是「<b>WBC 能力筛查</b>」。
+<span class="en">"This is route A, but call it what it is: WBC capability screening, not VLA expansion. If strict
+tracking fails, GR00T training is irrelevant."</span><br>
+冻结 WBC 是天花板：<b>WBC 跟不住的动作，其 token 区域 decoder 解不稳，GR00T 学了也只是不稳行为</b>。所以先验证 WBC，再谈训 GR00T。
+</div>
+
+<h2>3 · 扩容优先级阶梯（LAFAN 为什么排最后）<br><span class="en">Expansion ladder — why LAFAN is last</span></h2>
+
+<svg viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <rect x="0" y="0" width="900" height="220" fill="#ffffff"/>
+  <!-- steps -->
+  <rect x="20"  y="150" width="190" height="50" rx="6" fill="#bbf7d0" stroke="#16a34a"/>
+  <text x="115" y="172" text-anchor="middle" fill="#14532d" font-weight="700">① 13 条 deploy demo</text>
+  <text x="115" y="190" text-anchor="middle" fill="#166534" font-size="11">✅ 已跑通（7 已发布）</text>
+
+  <rect x="230" y="110" width="200" height="50" rx="6" fill="#bfdbfe" stroke="#2563eb"/>
+  <text x="330" y="132" text-anchor="middle" fill="#1e3a8a" font-weight="700">② BONES-SEED G1 子集</text>
+  <text x="330" y="150" text-anchor="middle" fill="#1d4ed8" font-size="11">同一 converter，WBC 原生分布</text>
+
+  <rect x="450" y="70" width="200" height="50" rx="6" fill="#fed7aa" stroke="#ea580c"/>
+  <text x="550" y="92" text-anchor="middle" fill="#9a3412" font-weight="700">③ LAFAN → robot</text>
+  <text x="550" y="110" text-anchor="middle" fill="#c2410c" font-size="11">新 converter + 物理 gap</text>
+
+  <rect x="670" y="30" width="200" height="50" rx="6" fill="#fecaca" stroke="#dc2626"/>
+  <text x="770" y="52" text-anchor="middle" fill="#991b1b" font-weight="700">④ 全量 30G SMPL</text>
+  <text x="770" y="70" text-anchor="middle" fill="#b91c1c" font-size="11">最重，最后</text>
+
+  <!-- arrows up the staircase -->
+  <line x1="210" y1="165" x2="230" y2="155" stroke="#64748b" stroke-width="2" marker-end="url(#c)"/>
+  <line x1="430" y1="125" x2="450" y2="115" stroke="#64748b" stroke-width="2" marker-end="url(#c)"/>
+  <line x1="650" y1="85"  x2="670" y2="75"  stroke="#64748b" stroke-width="2" marker-end="url(#c)"/>
+  <text x="40" y="28" fill="#334155" font-size="12">风险 / 成本 →</text>
+  <defs><marker id="c" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#64748b"/></marker></defs>
+</svg>
+
+<p>LAFAN 排最后有<b>三条具体理由</b>（MiMo 给的；其中①②在 LeSONIC repo 内核实，③源自 MimicKit 训练记录、非本仓可验）：</p>
+<ol>
+  <li><b>WBC 分布 gap 是真的。</b> WBC 训练集是 <code>motion_lib_bones_seed/robot_filtered</code>（dance/loco 为主）。
+  LAFAN 的高踢腿/跳跃是动画数据，未经物理校验，WBC decoder 从没见过这些区域的 token → 即便 g1 encoder 吐得出 token，
+  <code>g1_dyn</code> 解出来可能是垃圾。</li>
+  <li><b>没有现成 converter。</b> <code>convert_soma_csv_to_motion_lib.py</code> 支持 SOMA CSV/PKL、deploy PKL、
+  <u>以及 Bones-SEED flat CSV（case #4/#5）</u>——所以②不用写新 converter。但 LAFAN 是 MimicKit motion schema，
+  要<b>从头写 MimicKit→robot_filtered 转换</b>（字段映射 + fps 校正）。</li>
+  <li><b>MimicKit 自己的 run 只到 63% 跟踪</b>（外部 MimicKit 训练记录 <code>mimickit-lafan-fight-training-plan</code>，本仓无法直接核验）。
+  若它自家 PPO 都跟不满 run，说明<b>参考轨迹本身部分不可行</b>——把不可行参考喂 SONIC，只会产出不可行 token。</li>
+</ol>
+
+<div class="ok">
+<b>反过来看「②为什么便宜」：</b>converter 已经原生支持 Bones-SEED flat CSV
+（<code>load_bones_csv</code> / <code>BONES_CSV_JOINT_NAMES</code>），和 WBC 训练分布同源 → <b>分布/转换风险最低、零新代码</b>。
+（注意：同源≠零风险，每条新 clip 仍可能严格跟踪失败，要逐条过筛查。）
+按 dance/boxing/kick/jump 关键词筛 50-100 条，就能在碰 LAFAN 之前把动作词表做大。
+<span class="en">BONES-SEED reuses the existing converter and the WBC's own training distribution — lowest distribution/converter
+risk and no new code (not zero risk: each clip can still fail the strict screen).</span>
+</div>
+
+<h2>4 · 两道必过的闸门（在碰 LAFAN 之前）<br><span class="en">Two gates to pass before LAFAN</span></h2>
+
+<h3>闸门 1 · 严格 WBC 跟踪筛查（<span class="tag t-red">RELAX 必须关</span>）</h3>
+<div class="warn">
+<b>Codex 盲点：别用 demo 设置验证。</b> 我们的动作串联脚本
+（<code>gear_sonic_sequence.sh</code>）为了 demo 连贯性<b>显式放宽了形变/摔倒阈值、关掉 time_out</b>——
+这对 go/no-go 筛查是<b>毒药</b>。<span class="en">RELAX/sequencing settings are poison for a feasibility screen.</span>
+筛查必须：<code>RELAX=0</code>、原生终止阈值、headless、无相机、不录 token、不起 GR00T。
+</div>
+
+<p>判据来源已存在（Codex 指出）：<code>im_eval_callback.py</code> 报 <code>terminated</code> / <code>success_rate</code> /
+逐动作 <code>progress</code>（顶层聚合为 success/progress 率）/ <code>mpjpe_g</code>（全局 MPJPE，mm）。
+严格终止用 release 自带的 <code>base_adaptive_strict_ori_foot_xyz</code>（<u>不要</u>用放宽的 <code>tracking/eval.yaml</code> 或脚本里的 <code>RELAX=1</code>→阈值 99）。
+<b>MiMo 盲点</b>：必须<b>先定阈值</b>再跑——建议 <code>terminated=No</code> 且 <code>progress</code> 接近 1.0 且 <code>mpjpe_g</code> 低于 in-distribution 基线的某个倍数。</p>
+
+<h3>闸门 2 · VLA held-out 泛化（LOMO）</h3>
+<p>当前 VLA = 7 动作 × 1 ep，<b>纯记忆，无 held-out</b>。<b>MiMo 盲点（也是 Codex 共识）</b>：
+在一个不能泛化的 VLA 上加 LAFAN token，等于「<b>把查找表做大</b>」——更多 token 进、同样的记忆出。
+P0 #2 的 <code>make_holdout_split.py</code>（leave-one-motion-out）必须先过：held-out MSE 若爆炸，
+说明 VLA 学的是 label 不是 skill，扩词表没意义。</p>
+
+<div class="note">
+<b>MiMo 的灵魂拷问：你到底要「扩 VLA」还是「更多机器人行为」？</b><br>
+<span class="en">"Do you need to expand the VLA, or do you need more robot behaviors?"</span><br>
+• 要「demo 里多几个动作」→ <b>Route C 双控制器</b>最便宜最诚实（但 VLA 仍只会 7 个）。<br>
+• 要「<b>一个</b> VLA 会很多事」→ 先解决泛化（每动作多 ep + held-out），<u>再</u>扩词表。
+</div>
+
+<h2>5 · 被抓出的盲点（点名感谢两位评审）<br><span class="en">Blind spots caught</span></h2>
+<table>
+<tr><th>盲点</th><th>谁抓的</th><th>纠正</th></tr>
+<tr><td>离线 <code>encode()</code> 是「免费捷径」</td><td>Codex + MiMo</td>
+  <td>不是。encoder 要的是 <code>command_multi_future_nonflat</code> + <code>motion_anchor_ori_b_mf_nonflat</code>
+  这类精确的 robot-FK 参考特征，不是 raw LAFAN/SMPL。仍要构造精确 FK 特征，且 token 只有 WBC 解得出才有意义 → <b>还是要闭环验证</b>。</td></tr>
+<tr><td>FSQ levels = 16</td><td>Codex + MiMo</td>
+  <td>错。配置是 <code>num_fsq_levels: 32</code>（<code>all_mlp_v1.yaml:34</code>）；部署侧 snap grid 是 17 个值
+  <code>k/16, k∈[-8,8]</code> = {-0.5…0.5}（<code>0004</code> patch 实证）。code 是 FSQ-32，部署 token 值落 1/16 网格——两层别混。</td></tr>
+<tr><td>RELAX 设置可用于 go/no-go</td><td>Codex</td><td>毒药，见闸门 1。</td></tr>
+<tr><td>「更多动作」≈「更好 VLA」</td><td>MiMo</td><td>不等价。VLA 的问题是泛化（每动作 1 ep），不是词表大小。</td></tr>
+<tr><td>MimicKit 63% run 跟踪无所谓</td><td>MiMo</td><td>红旗：参考本身部分不可行 → 不可行 token。</td></tr>
+<tr><td>动作串联 <code>SETTLE=40</code>（0.8s）seam 够用</td><td>MiMo</td>
+  <td>对高能量 LAFAN fight 可能不够：上一段踢腿还在减速，下一段就启动了。高能量动作要加长 settle。</td></tr>
+</table>
+
+<h2>6 · 第一个实验（一条 clip 转好后约 30 分钟，定生死）<br><span class="en">The single first experiment</span></h2>
+<p>两位评审给的实验几乎一样，合并成最稳的版本：<b>先用 in-distribution 的 kick 验证「严格筛查 harness + 阈值」本身，
+再打 LAFAN fight 这个真风险</b>。无 GR00T、无 recorder、无 MimicKit、无 RELAX、无相机。
+<b>注意</b>：B 步要先有一条转好的 LAFAN robot_filtered（写 MimicKit→robot_filtered converter 或手转一条最短 clip）才能跑——
+「30 分钟」指的是 <u>clip 转好之后</u>的那次 eval。</p>
+
+<pre><code># ── A. in-distribution 基线：kick（已知 WBC 会，验证 harness + 标定阈值）──
+cd dependencies/GR00T-WholeBodyControl
+python gear_sonic/data_process/convert_soma_csv_to_motion_lib.py \
+    --input gear_sonic_deploy/reference/example/neutral_kick_R_001__A543 \
+    --output /tmp/kick_indist.pkl --fps 50
+
+python gear_sonic/eval_agent_trl.py +checkpoint=sonic_release/last.pt \
+    +headless=True ++num_envs=1 \
+    ++manager_env.observations.policy.enable_corruption=False \
+    "++manager_env.commands.motion.motion_lib_cfg.motion_file=/tmp/kick_indist.pkl" \
+    "++manager_env.commands.motion.motion_lib_cfg.smpl_motion_file=dummy"
+    # ⚠️ 不加任何 RELAX / threshold=99 override —— 用原生严格终止
+    # 看 im_eval: terminated=No? progress_rate≈1? mpjpe_g 多少 → 这就是 in-dist 基线阈值
+
+# ── B. 真风险：LAFAN fight（需先写 MimicKit→robot_filtered，或先拿一条最短 clip 手转）──
+#    判据：terminated=No 且 progress_rate 接近 A 的水平 且 mpjpe_g 不爆
+#    过 → token 空间能表达武术，LAFAN 值得继续；垮 → LAFAN dead on arrival，转 Route C/D
+</code></pre>
+
+<div class="ok">
+<b>决策树：</b><br>
+A 垮（连 in-dist kick 都摔）→ 是 harness/阈值问题，先修。<br>
+A 过、B 过 → LAFAN 在 token 空间内，按 Route A 继续（但仍要先过闸门 2 LOMO）。<br>
+A 过、B 垮 → <b>停止用 LAFAN token 扩 VLA</b>。要么 Route C 双控制器（demo），要么 Route D 重训 WBC（根因，最贵）。
+</div>
+
+<h2>6.5 · 实测结果（2026-06-09 真跑了）<br><span class="en">We actually ran it — empirical results</span></h2>
+<p>用上面的严格筛查（<code>im_eval</code> + release 自带 strict 终止 + 无 RELAX/相机/GR00T；MimicKit pkl 经新写的
+<code>scripts/lafan_mimickit_to_robot_filtered.py</code> 桥成 robot_filtered，joint_order=mj 经 18mm 实测验证正确）跑了
+in-distribution 基线 + 4 条 LAFAN，再对失败项做 RELAX A/B。<b>结论比文档原先的「LAFAN 大概率跟不住」更精确——也部分推翻了它。</b></p>
+
+<h3>① in-distribution 严格基线（7 条 SONIC 原生）</h3>
+<table>
+<tr><th>motion</th><th>摔?</th><th>progress</th><th>MPJPE_l</th><th></th></tr>
+<tr><td>dance / lunge / kick / squat / jump / walk</td><td>✅ 否</td><td>1.00</td><td>22–42 mm</td><td>6/7 过</td></tr>
+<tr><td><b>macarena</b>（1375 帧 / 27.5s 最长）</td><td>❌ 摔</td><td>0.37</td><td>22 mm</td><td>连原生长动作都栽在严格终止上</td></tr>
+</table>
+<p class="small">success_rate=0.857，progress_rate=0.909。<b>启示</b>：strict 这道闸门是真的硬，长动作会累积漂移触发终止——这正是 demo 当初要 RELAX 的原因。</p>
+
+<h3>② LAFAN 4 条：严格 vs RELAX A/B</h3>
+<table>
+<tr><th>LAFAN motion</th><th>严格·摔?</th><th>严格 progress</th><th>RELAX 全局漂移 MPJPE_g</th><th>判定</th></tr>
+<tr><td><b>fight_15s</b>（含高踢腿主段 600-1050）</td><td><span class="tag t-green">✅ 否</span></td><td><b>1.00</b></td><td>372 mm（in-dist 同档）</td><td><b>GO ✅</b> WBC 真能跟</td></tr>
+<tr><td>dance_15s（LAFAN 编舞，非 macarena）</td><td><span class="tag t-amber">❌ 摔@6%</span></td><td>0.06</td><td>506 mm</td><td>🟡 边缘：肢体跟、身体漂 ~0.5m</td></tr>
+<tr><td>run_15s</td><td><span class="tag t-amber">❌ 摔@61%</span></td><td>0.61</td><td>853 mm</td><td>🟡 边缘：跑不出位移（呼应 MimicKit 自家 63%）</td></tr>
+<tr><td>jumps_15s（腾空/弹道）</td><td><span class="tag t-red">❌ 摔@2.5%</span></td><td>0.025</td><td><b>2345 mm（2.3 米!）</b></td><td><b>NO ❌</b> 放宽也偏 2.3m</td></tr>
+</table>
+<p>RELAX（把 foot/anchor/ori 阈值放到 99）后 4 条都「不终止」跑完，<b>但全局 MPJPE_g 才是照妖镜</b>：fight 372mm（真跟住）、
+jumps 2345mm（肢体在动、身体根本不在参考该在的地方=没做成那个跳）。</p>
+
+<div class="ok">
+<b>🎯 实测推翻「一刀切 LAFAN 跟不住」，给出一条物理规律：</b><br>
+SONIC WBC 是<b>接地的平衡/接触控制器</b> → <b>接地的动态动作（fight 高踢腿/lunge）跟得住</b>，
+<b>弹道/腾空动作（jumps 双脚离地、身体走抛物线）跟不住</b>，带飞行相的 locomotion（run）部分跟、漂移大。
+<span class="en">SONIC WBC is a grounded balance controller: it tracks dynamic grounded motion (fight kicks) but not
+ballistic flight (jumps). This refutes the blanket "LAFAN won't track" — fight is a validated GO.</span>
+</div>
+
+<p><b>对原问题的直接回答：</b>「能不能用 LAFAN 给模型加更多动作」——<b>fight 可以</b>（WBC 严格筛查全过、token label 有效），
+走的就是和现有 7 demo 一模一样的管线（录 token → finetune GR00T）；<b>jumps 不行</b>（WBC 物理上做不出腾空）；
+run / 外部 dance 边缘（要么调终止、要么 Route D 重训 WBC）。<b>这是动作类型级的 go/no-go，不是「LAFAN 整体不行」。</b></p>
+
+<h3>③ fight 走完整管线 = 真加进 VLA 了（2026-06-09 当天跑完）</h3>
+<p>不止筛查——fight 真的过了完整管线进了 VLA：<b>录 token（760 帧）→ 建 8 动作 LeRobot 数据集（fight=「throw punches」=traj 2）
+→ finetune GR00T 6000 步（loss 1.19→0.044）→ open-loop token MSE</b>。</p>
+<table>
+<tr><th>traj</th><th>motion</th><th>token MSE</th><th></th></tr>
+<tr><td>0/1/3</td><td>dance / lunge / macarena</td><td>0.0017 / 0.0010 / 0.0007</td><td>原有</td></tr>
+<tr><td><b>2</b></td><td><b>FIGHT（新 LAFAN）</b></td><td><b>0.0021</b></td><td><b>在 7 个已知动作中游 ✅（比 kick/squat 还低）</b></td></tr>
+<tr><td>4/5/6/7/8</td><td>kick / squat / jump / walk</td><td>0.0031 / 0.0034 / 0.0013 / 0.0009</td><td>原有</td></tr>
+</table>
+<div class="ok">
+<b>结论：fight 已成功加进 SONIC-VLA。</b> fight MSE 0.0021 落在原 7 动作区间（0.0007–0.0034）正中，
+比 per-motion-mean 基线（0.039）低 <b>18.7×</b> → GR00T 学会吐 fight token 的程度和原有动作一个量级。
+全链路 <b>LAFAN fight → WBC 严格跟住 → 录 token → finetune → in-family MSE</b> 端到端打通。
+<span class="en">Fight is now in the VLA: open-loop token MSE 0.0021 is in-family with the original 7 (18.7× below baseline).</span>
+</div>
+<div class="note">
+<b>诚实边界：</b>这是<b>开环 + 训练集轨迹</b>的 MSE = <b>记忆</b>，和已发布的 7 动作同性质（都没过 held-out）。
+它证明的是「<b>架构能吸收 fight 这个新动作</b>」，<u>不是</u>泛化。闸门② LOMO held-out 对<b>所有</b>动作（含 fight）仍是悬而未决的真问题。
+ckpt：<code>outputs/gr00t_sonic_8plus_fight/checkpoint-6000</code>（gitignored runtime）。
+</div>
+
+<p class="small">复现脚手架：<code>scripts/lafan_mimickit_to_robot_filtered.py</code>（MimicKit pkl→robot_filtered，joint_order=mj，fps 留 30 由 fk_batch 重采样到 50）。
+原始指标 json 在 <code>/tmp/sonic_screen/{indist,lafan_all,lafan_relax}/metrics_eval.json</code>（runtime，未入库）。
+im_eval 需 <code>smpl_sim</code>（本机未装）→ 用了轻量 stub 还原 compute_metrics_lite（terminated/progress 由 im_eval 自算，不受影响）。</p>
+
+<h2>7 · 落地建议（按优先级）<br><span class="en">Recommendation, ranked</span></h2>
+<ol>
+  <li><s>先跑第一个实验</s> <b>✅ 已跑（§6.5）</b>：闸门① 严格 WBC 筛查完成——<b>fight GO、jumps NO、run/dance 边缘</b>。converter 也已写好。</li>
+  <li><s>fight 走完整管线验证扩 VLA</s> <b>✅ 已跑通（§6.5③）</b>：录 token→8 动作数据集→finetune 6000 步→<b>fight open-loop MSE 0.0021，in-family with 7 旧动作</b>。fight 已进 VLA。</li>
+  <li><b>补 LOMO held-out 闸门</b>（<code>make_holdout_split.py</code>，P0 #2）。这是「VLA 能不能学 skill 而非背 label」的前置，和扩 fight 并行做。</li>
+  <li><b>扩 BONES-SEED G1 子集</b>（同 converter、WBC 原生分布、风险最低，逐条过筛查），关键词筛 grounded 动态动作 50-100 条。</li>
+  <li><b>jumps/run/外部 dance</b>：要么调终止接受漂移（不诚实），要么 Route D 重训 WBC 进腾空分布（最贵），要么直接 Route C 双控制器路由做 demo（如实标注「VLA 只会接地动作，腾空走 MimicKit 并行系统」）。</li>
+</ol>
+
+<div class="ok">
+<b>底线（实测后修正）：</b>LAFAN 不是一刀切的对错，是<b>动作类型级</b>的。闸门① 已过：<b>fight 是已验证可加的 VLA 新动作</b>
+（接地动态动作，严格筛查全过），下一步就录 token 训进去；<b>jumps 物理上加不了</b>（WBC 做不出腾空）；run/外部 dance 边缘。
+原先「LAFAN 整体跟不住、排最后」被实测精化为「接地动态动作能加、弹道腾空不能」。
+<span class="en">Corrected by experiment: LAFAN is per-motion-type, not all-or-nothing. Gate ① passed — fight is a validated
+new VLA action (record tokens next); jumps is physically impossible for the WBC; run/foreign-dance are marginal.</span>
+</div>
+
+<h2>8 · 技能化拆分 + flow3（2026-06-09 晚，含三模型二次评审）<br><span class="en">Segmenting into promptable skills for flow3</span></h2>
+<p>目标：把 fight/run 从「一坨」拆成<b>一个个连贯招式</b>（按速度谷自然边界，<u>非</u>固定时间），每个当可单独 prompt 的技能，
+串成 <b>flow3</b>（跑一段→作一个技能→再跑→下一个技能，循环）。<b>方法论：拆段 → 严格 WBC 筛查（客观过滤）→ 录 token+训 → GUI 逐个演示留好的 → flow3。</b></p>
+
+<h3>二次评审（codex + mimo）拍下的盲点</h3>
+<table>
+<tr><th>盲点</th><th>结论</th></tr>
+<tr><td>8 个细技能（jab/cross/hook/uppercut）</td><td>❌ 太细 → 砍到 <b>3-4 粗类</b>（punch/kick/defensive/footwork）。ego 只看地面，细拳从画面无法区分，prompt 唯一信号 + 轨迹近同 → <b>mode collapse 几乎必然</b>。</td></tr>
+<tr><td>flow3 串接 = 学会组合？</td><td>❌ 是<b>编排（orchestration）非学习的组合</b>。真瓶颈是<b>转场</b>：需指定 guard 为<b>中性枢纽</b>，所有技能回它（否则 8×8 转场吸收不了）。</td></tr>
+<tr><td>单 clip「5 样本」</td><td>同一表演者同一 take 的相关重复 = <b>零泛化多样性</b>，只降方差。</td></tr>
+<tr><td>held-out 泛化</td><td>仍是没过的真闸门；本轮按用户决定<b>推迟到 flow3 之后</b>当大任务（当前明确是 demo 性质=记忆编排，和已发布 demo 同质）。</td></tr>
+<tr><td>工具债</td><td><code>gr00t_dump_pred_tokens.py</code> 硬编 range(7)+旧 key；converter 一段一 prompt 无转场上下文 → 扩段前要改。</td></tr>
+</table>
+
+<h3>段级严格筛查实测（28 段：14 fight + 14 run）</h3>
+<p>用 <code>scripts/lafan_segment_skills.py</code>（速度谷切，活动度=关节角速+根线速，深谷≥1.2s 间隔）切 fight1(245s→80 段)/run1(238s→63 段)，
+取 skill 长度(1.5-5s)各抽 14 段过严格 WBC 筛查：</p>
+<table>
+<tr><th>来源</th><th>通过</th><th>关键发现</th></tr>
+<tr><td><b>fight</b></td><td><b>11 / 14</b></td><td>大多接地招式跟得住（mpjpe_l 13-41mm）；3 段栽（seg030/040/062，progress 0.32-0.88）。</td></tr>
+<tr><td><b>run</b></td><td><b>14 / 14 全过 ✅</b></td><td>🎯 <b>推翻「run 不值得拆」</b>：整段 15s run 严格垮@61%，但<b>短段(2-4s)全过</b>——短时长累积漂移不够触发终止。低位移转身段(0.01-0.27m travel)跟得最干净(mpjpe_g 43-60mm)；高位移冲刺段(8m)也<b>不摔</b>但全局漂 ~800mm(跟住步态、落后地面覆盖)。</td></tr>
+</table>
+<div class="ok">
+<b>结论修正：run 短段可用（尤其转身/中速）。</b> 两评审都判「run 不值得拆、复用 walk」，但段级实测 14/14 过——
+<b>整段失败 ≠ 段级失败</b>，关键是时长累积。flow3 的 locomotion 因此可以用 LAFAN run 的转身/慢跑段（比单一 walk 更丰富），
+高速冲刺段虽过但漂移大、demo 质量待 GUI 验。<span class="en">Segment-level run tracks 14/14 even though the full clip failed — short
+duration doesn't accumulate the drift; turns/jogs are cleanest. Refutes "don't segment run."</span>
+</div>
+<p class="small">脚手架：<code>scripts/lafan_segment_skills.py</code>（clip→速度谷段→多 key robot_filtered + manifest.csv 含 dur/horiz_travel）。
+段筛 json `/tmp/sonic_screen/seg/metrics_eval.json`(runtime)。<b>下一步</b>：curate ~6 fight+~4 run 不同技能 → 录 token → 训 → GUI 逐个演示留好的 → flow3（guard 枢纽 + run 转身 locomotion）。</p>
+
+<hr style="margin-top:2.5em; border:none; border-top:1px solid #e2e8f0;">
+<p class="small">
+脚手架引用：跟踪 eval <code>gear_sonic/eval_agent_trl.py</code> · 转换器 <code>data_process/convert_soma_csv_to_motion_lib.py</code>
+· 判据 <code>trl/callbacks/im_eval_callback.py</code> · token 模块 <code>trl/modules/universal_token_modules.py</code>（encode:652 / decode:692）
+· held-out <code>scripts/make_holdout_split.py</code> · 动作串联 <code>doc/sonic_action_sequencing.html</code>。<br>
+关联记忆：<code>sonic-wbc-vla-route</code>、<code>mimickit-lafan-fight-training-plan</code>、<code>mimickit-to-vla-distill-plan</code>、<code>sonic-vla-critique-roadmap</code>。
+</p>
+
+</body>
+</html>

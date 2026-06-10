@@ -43,7 +43,12 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--action_horizon", type=int, default=40)
     ap.add_argument("--traj_ids", type=int, nargs="+", default=list(range(7)))
+    ap.add_argument("--keys", nargs="+", default=None,
+                    help="output names aligned with --traj_ids (overrides the built-in 7-motion map; "
+                         "needed for datasets beyond the original 7, e.g. skill segments)")
     args = ap.parse_args()
+    if args.keys is not None and len(args.keys) != len(args.traj_ids):
+        raise SystemExit(f"--keys ({len(args.keys)}) must align with --traj_ids ({len(args.traj_ids)})")
     logging.basicConfig(level=logging.INFO)
 
     import torch
@@ -70,7 +75,7 @@ def main() -> int:
     os.makedirs(args.out, exist_ok=True)
     AH = args.action_horizon
 
-    for traj_id in args.traj_ids:
+    for idx, traj_id in enumerate(args.traj_ids):
         traj = loader[traj_id]
         T = len(traj)
         mod_no_action = deepcopy(loader.modality_configs)
@@ -92,7 +97,10 @@ def main() -> int:
             for j in range(AH):
                 preds.append(mt[j])
         preds = np.asarray(preds)[:T].astype(np.float32)  # (T, 64)
-        key = TRAJ_TO_KEY[traj_id] if traj_id < len(TRAJ_TO_KEY) else f"traj{traj_id}"
+        if args.keys is not None:
+            key = args.keys[idx]
+        else:
+            key = TRAJ_TO_KEY[traj_id] if traj_id < len(TRAJ_TO_KEY) else f"traj{traj_id}"
         out_path = os.path.join(args.out, f"{key}.npz")
         np.savez_compressed(out_path, motion_token=preds, motion_key=key, prompt=str(dp.text))
         logging.info(f"[dump] traj {traj_id} ({key}): pred_token {preds.shape} -> {out_path}")

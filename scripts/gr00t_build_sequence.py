@@ -37,6 +37,16 @@ KEY = {
     "squat": "squat_001__A359",
     "jump": "tired_one_leg_jumping_R_001__A359",
     "walk": "walking_quip_360_R_002__A428",
+    # LAFAN skill segments (trained into outputs/gr00t_sonic_skills); use PKL=data/skill_demo_robot.pkl
+    "guard": "fight_seg000", "jab": "fight_seg020", "combo": "fight_seg050",
+    "turn": "run_seg001", "jog": "run_seg006", "runfast": "run_seg017",
+    "fight": "lafan_fight_15s",
+    # flow3 hand-picked LAFAN windows (trained into outputs/gr00t_sonic_flow3);
+    # use PKL=data/seg_flow3_all.pkl PRED_DIR=datasets/sonic_vla_pred_flow3
+    "combat": "fight_combat_combo_kicks", "block": "fight_block_pushkick_shove",
+    "fierce": "fight_fierce_swings", "jogback": "run_jog_backward",
+    "sprint": "run_sprint_backpedal", "circle": "run_circle",
+    "moonwalk": "dance_moonwalk", "spinclap": "dance_spin_stepback_clap",
 }
 PROMPT = {
     "dance": "dance",
@@ -46,10 +56,24 @@ PROMPT = {
     "squat": "squat",
     "jump": "jump on one leg",
     "walk": "walk and turn around",
+    # prompts MUST match the trained task strings exactly (sonic_vla_lerobot_skills)
+    "guard": "hold a fighting guard", "jab": "throw a quick jab",
+    "combo": "throw a punch combo advancing",
+    "turn": "turn around in place", "jog": "jog forward", "runfast": "run forward fast",
+    "fight": "throw punches",
+    # flow3 prompts MUST match the trained task strings exactly (sonic_vla_lerobot_flow3)
+    "combat": "combat strikes and combo kicks", "block": "block and push-kick",
+    "fierce": "fierce swings", "jogback": "jog forward then run backward",
+    "sprint": "sprint back and forth then backpedal", "circle": "run in a circle",
+    "moonwalk": "moonwalk", "spinclap": "spin, step back, and clap",
 }
 # Motions that do NOT self-start from rest (need a bootstrap window). From the closed-loop scan:
 # squat/lunge/dance/macarena self-sustain; kick/walk/jump stall -> bootstrap.
-ONESHOT = {"kick", "walk", "jump"}
+# LAFAN skills: punches + locomotion all one-shot from rest -> bootstrap into the move.
+# flow3 windows all start mid-action -> all one-shot.
+ONESHOT = {"kick", "walk", "jump",
+           "jab", "combo", "turn", "jog", "runfast", "fight",
+           "combat", "block", "fierce", "jogback", "sprint", "circle", "moonwalk", "spinclap"}
 
 FLOWS_FILE_DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sonic_demo_flows.json")
 

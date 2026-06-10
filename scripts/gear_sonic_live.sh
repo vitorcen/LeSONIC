@@ -35,12 +35,19 @@ declare -A KEY=(
   [dance]=dance_in_da_party_001__A464  [lunge]=forward_lunge_R_001__A359_M
   [macarena]=macarena_001__A545        [kick]=neutral_kick_R_001__A543
   [squat]=squat_001__A359              [jump]=tired_one_leg_jumping_R_001__A359
-  [walk]=walking_quip_360_R_002__A428
+  [walk]=walking_quip_360_R_002__A428  [fight]=lafan_fight_15s
+  # LAFAN skill segments (trained into outputs/gr00t_sonic_skills); set PKL=data/skill_demo_robot.pkl
+  [guard]=fight_seg000   [jab]=fight_seg020   [combo]=fight_seg050
+  [turn]=run_seg001      [jog]=run_seg006     [runfast]=run_seg017
 )
 declare -A PROMPT=(
   [dance]="dance"   [lunge]="do a forward lunge" [macarena]="dance the macarena"
   [kick]="kick"     [squat]="squat"              [jump]="jump on one leg"
-  [walk]="walk and turn around"
+  [walk]="walk and turn around"        [fight]="throw punches"
+  # prompts MUST match the trained task strings exactly (sonic_vla_lerobot_skills)
+  [guard]="hold a fighting guard"      [jab]="throw a quick jab"
+  [combo]="throw a punch combo advancing"
+  [turn]="turn around in place"        [jog]="jog forward"   [runfast]="run forward fast"
 )
 SEL="${1:-${MOTION:-kick}}"
 k="${KEY[$SEL]:-}"; [[ -z "$k" ]] && { echo "[live] unknown motion '$SEL' (dance|lunge|macarena|kick|squat|jump|walk)"; exit 2; }

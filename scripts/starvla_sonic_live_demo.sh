@@ -12,6 +12,11 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${STARVLA_PORT:-5556}"
 ENV_BIN="${ENV_BIN:-$HOME/miniconda3/envs/starvla_eval_qwen35/bin}"
+# Authoritative live default = CE v1 (per-dim independent CE) + expected-T0.5 decode:
+# open-loop MSE64 0.0125, best of the StarVLA family. The masked / masked_hist heads
+# are NEGATIVE results (worse than the constant-mean template — doc/sonic_starvla_swap_brainstorm.html
+# §11.5); point STARVLA_CKPT at them only to reproduce the negative archive. This default
+# also exercises the §11.6 serve-state-permutation fix (right_arm proprio was frozen before).
 CKPT="${STARVLA_CKPT:-$REPO_ROOT/outputs/starvla/sonic_qwen3_5_4b_ce/checkpoints/steps_6000_pytorch_model.pt}"
 SERVER_LOG="${SERVER_LOG:-/tmp/starvla_sonic_server.log}"
 SEQ="${1:-@flow3}"
@@ -29,9 +34,12 @@ if ps -eo cmd | grep -q "[s]erve_starvla_sonic.py.*--port $PORT"; then
   echo "[live-demo] StarVLA server already running on :$PORT — reusing it."
 else
   [[ -f "$CKPT" ]] || { echo "[live-demo] ckpt not found: $CKPT (set STARVLA_CKPT=...)"; exit 1; }
+  # History model needs --proprio-history 3
+  HIST_FLAG=""
+  [[ "$CKPT" == *"_hist"* ]] && HIST_FLAG="--proprio-history 3"
   echo "[live-demo] starting StarVLA server (ckpt=$(basename "$CKPT"), port=$PORT) ..."
   ( nohup "$ENV_BIN/python" "$REPO_ROOT/scripts/serve_starvla_sonic.py" \
-      --ckpt "$CKPT" --port "$PORT" > "$SERVER_LOG" 2>&1 & )
+      --ckpt "$CKPT" --port "$PORT" $HIST_FLAG > "$SERVER_LOG" 2>&1 & )
   echo "[live-demo] loading the VLM (~1 min, GPF-prone box: auto-restarts on a crashed load) ..."
   ready=0
   for attempt in 1 2 3 4 5 6; do
@@ -43,7 +51,7 @@ else
     [[ "$ready" == "1" ]] && break
     echo "[live-demo] server load attempt $attempt died (kernel GPF burst?) — relaunching ..."
     ( nohup "$ENV_BIN/python" "$REPO_ROOT/scripts/serve_starvla_sonic.py" \
-        --ckpt "$CKPT" --port "$PORT" > "$SERVER_LOG" 2>&1 & )
+        --ckpt "$CKPT" --port "$PORT" $HIST_FLAG > "$SERVER_LOG" 2>&1 & )
     sleep 5
   done
   [[ "$ready" == "1" ]] && echo "[live-demo] server ready." \

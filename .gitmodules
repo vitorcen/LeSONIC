@@ -4,3 +4,6 @@
 [submodule "dependencies/GR00T-WholeBodyControl"]
 	path = dependencies/GR00T-WholeBodyControl
 	url = https://github.com/NVlabs/GR00T-WholeBodyControl
+[submodule "MaskBeT"]
+	path = MaskBeT
+	url = git@github.com:vitorcen/MaskBeT.git

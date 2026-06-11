@@ -385,11 +385,205 @@ lw 逐窗分布佐证(短/简单窗 run_circle 0.0096 / fierce_swings 0.0028 仍
 (capacity goes to memorization at 10.7 epochs). Layerwise rejected; live default stays CE v1 + expected T=0.5.</span>
 </p>
 
+<h3>11.5 · 第③④刀放量 = 双负结果:masked CE + proprio history 全线退步 / P0 series, negative at scale</h3>
+<p>
+用户裁决 CE v1 live demo「动作幅度很小,应该还需要改进」后,按 <a href="sonic_vla_critique_roadmap.html">三模型 roadmap</a> 的
+P0(改 loss/建联合分布)→ P1(治记忆/加 history)正序,实施了两刀。<strong>两刀在开环 teacher-forcing 保真度上都是负结果,
+且比 §11.4 的 layerwise 更狠 —— 连「每窗输出常数均值」的模板基线都打不过。</strong>
+<span class="en">Both the MaskGIT joint-distribution head and proprio history regressed at 8-window scale —
+worse than a constant per-window-mean template, the weakest possible baseline.</span>
+</p>
+
+<div class="bad">
+<strong>裁决:不是 serve bug,不是欠训。</strong>开环 dump 走训练 dataloader、绕过整个 serving 栈,数字本身就比 CE v1 差 2.5×;5000→6000 步已平台。
+<strong>「加 head 表达力 / 建联合分布」这条路在本数据规模上实测退步</strong> —— 但 mimo 复审指出还有 d_model 不公(1024 vs 768)与 train/inference gap 两个 confound 未排,
+「架构死刑」需两个 ~1 天消融坐实(见本节末「诚实边界」)。
+</div>
+
+<table>
+<tr><th>模型(同数据 flow3、同 24k 样本、frozen Qwen3.5-4B、teacher-forcing 开环)</th><th>MSE64</th><th>bin_acc</th><th>token std<br>(GT 0.216)</th><th>vs 模板 0.0367</th></tr>
+<tr><td>GR00T N1.7(机器人预训练 flow head,锚点)</td><td class="ok">0.0026</td><td>—</td><td>—</td><td class="ok">低 14×</td></tr>
+<tr><td><strong>CE v1(per-dim 独立 CE,106M,§11.2 live 默认)</strong></td><td class="ok"><strong>0.0174</strong></td><td class="ok"><strong>41.6%</strong></td><td>0.219</td><td class="ok">低 2.1× · <strong>好 53%</strong></td></tr>
+<tr><td><strong>③ Masked CE(MaskGIT 联合解码,58.8M)</strong></td><td class="x"><strong>0.0437</strong></td><td class="x">17.7%</td><td class="x">0.147(68% GT)</td><td class="x"><strong>差 19%</strong></td></tr>
+<tr><td><strong>④ Masked CE + proprio history K=3</strong></td><td class="x"><strong>0.0472</strong></td><td class="x">16.7%</td><td class="x">0.151</td><td class="x"><strong>差 29%</strong></td></tr>
+</table>
+
+<p>
+<strong>逐窗一致回归(8/8 无一例外):</strong>CE v1 最佳窗 <code>fierce_swings</code> 0.0043(已摸 GR00T 区间)在 masked 下崩到
+<strong>0.0636(15×)</strong>;最长的 dance 窗 moonwalk 0.0247→0.0597。<strong>history 比纯 masked 每一窗都更差</strong> ——
+加历史不仅没治记忆,反而进一步稀释。
+</p>
+
+<div class="fig">
+<svg viewBox="0 0 760 250" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <rect x="0" y="0" width="760" height="250" fill="#ffffff"/>
+  <text x="380" y="22" text-anchor="middle" font-size="13" font-weight="bold" fill="#1a1a1a">开环 MSE64 逐窗 · CE v1(绿) vs Masked(红) vs Mask+Hist(深红) / per-window open-loop MSE64</text>
+  <!-- axes -->
+  <line x1="60" y1="200" x2="730" y2="200" stroke="#333" stroke-width="1"/>
+  <line x1="60" y1="40" x2="60" y2="200" stroke="#333" stroke-width="1"/>
+  <!-- template baseline line at 0.0367 -> y = 200 - 0.0367/0.073*160 = 120 -->
+  <line x1="60" y1="120" x2="730" y2="120" stroke="#b35900" stroke-width="1.3" stroke-dasharray="5,4"/>
+  <text x="725" y="116" text-anchor="end" font-size="10" fill="#b35900">模板基线 0.0367 (constant mean)</text>
+  <!-- GR00T anchor at 0.0026 -> y = 194 -->
+  <line x1="60" y1="194" x2="730" y2="194" stroke="#4a7400" stroke-width="1.3" stroke-dasharray="5,4"/>
+  <text x="725" y="191" text-anchor="end" font-size="10" fill="#4a7400">GR00T 0.0026</text>
+  <!-- scale: y = 200 - mse/0.073*160 ; 0.073 max -->
+  <!-- groups: 8 windows -->
+  <!-- data arrays inline -->
+  <g font-size="9" fill="#555">
+  <!-- window labels + bars -->
+  <!-- w0 moonwalk -->
+  <g transform="translate(78,0)">
+    <rect x="0"  y="146" width="11" height="54"  fill="#76b900"/>
+    <rect x="13" y="72"  width="11" height="128" fill="#c0392b"/>
+    <rect x="26" y="69"  width="11" height="131" fill="#7f1d1d"/>
+    <text x="18" y="214" text-anchor="middle">moon</text>
+  </g>
+  <!-- w1 spin -->
+  <g transform="translate(160,0)">
+    <rect x="0"  y="133" width="11" height="67"  fill="#76b900"/>
+    <rect x="13" y="81"  width="11" height="119" fill="#c0392b"/>
+    <rect x="26" y="77"  width="11" height="123" fill="#7f1d1d"/>
+    <text x="18" y="214" text-anchor="middle">spin</text>
+  </g>
+  <!-- w2 block -->
+  <g transform="translate(242,0)">
+    <rect x="0"  y="169" width="11" height="31"  fill="#76b900"/>
+    <rect x="13" y="130" width="11" height="70"  fill="#c0392b"/>
+    <rect x="26" y="125" width="11" height="75"  fill="#7f1d1d"/>
+    <text x="18" y="214" text-anchor="middle">block</text>
+  </g>
+  <!-- w3 combat -->
+  <g transform="translate(324,0)">
+    <rect x="0"  y="152" width="11" height="48"  fill="#76b900"/>
+    <rect x="13" y="70"  width="11" height="130" fill="#c0392b"/>
+    <rect x="26" y="70"  width="11" height="130" fill="#7f1d1d"/>
+    <text x="18" y="214" text-anchor="middle">combat</text>
+  </g>
+  <!-- w4 fierce -->
+  <g transform="translate(406,0)">
+    <rect x="0"  y="191" width="11" height="9"   fill="#76b900"/>
+    <rect x="13" y="61"  width="11" height="139" fill="#c0392b"/>
+    <rect x="26" y="40"  width="11" height="160" fill="#7f1d1d"/>
+    <text x="18" y="214" text-anchor="middle">fierce</text>
+  </g>
+  <!-- w5 circle -->
+  <g transform="translate(488,0)">
+    <rect x="0"  y="168" width="11" height="32"  fill="#76b900"/>
+    <rect x="13" y="132" width="11" height="68"  fill="#c0392b"/>
+    <rect x="26" y="118" width="11" height="82"  fill="#7f1d1d"/>
+    <text x="18" y="214" text-anchor="middle">circle</text>
+  </g>
+  <!-- w6 jog -->
+  <g transform="translate(570,0)">
+    <rect x="0"  y="183" width="11" height="17"  fill="#76b900"/>
+    <rect x="13" y="171" width="11" height="29"  fill="#c0392b"/>
+    <rect x="26" y="168" width="11" height="32"  fill="#7f1d1d"/>
+    <text x="18" y="214" text-anchor="middle">jog</text>
+  </g>
+  <!-- w7 sprint -->
+  <g transform="translate(652,0)">
+    <rect x="0"  y="153" width="11" height="47"  fill="#76b900"/>
+    <rect x="13" y="118" width="11" height="82"  fill="#c0392b"/>
+    <rect x="26" y="104" width="11" height="96"  fill="#7f1d1d"/>
+    <text x="18" y="214" text-anchor="middle">sprint</text>
+  </g>
+  </g>
+  <text x="56" y="200" text-anchor="end" font-size="9" fill="#555">0</text>
+  <text x="56" y="44"  text-anchor="end" font-size="9" fill="#555">.073</text>
+  <figcaption></figcaption>
+</svg>
+<figcaption>8 窗全部:绿(CE v1)最矮、红(masked)与深红(mask+hist)普遍越过橙色模板线 = 比常数均值还差。fierce 窗最戏剧:CE v1 几乎贴地,masked 顶到天花板。</figcaption>
+</div>
+
+<h4 style="font-size:14.5px;margin:18px 0 6px;color:var(--accent-dark)">为什么 masked 联合分布在这里是错的 / Why the joint head is wrong here</h4>
+<ol>
+<li><strong>数据撑不起联合分布(主因)。</strong>数据集总信息量 ≈ 5777 帧 × 64 维 × 3.61 bit/维(实测每维 token 边际熵)≈ <strong>1.33 Mbit</strong>;
+masked head <strong>58.8M 参数</strong>,每个 prompt 仅 ~720 帧。MaskGIT 建 p(masked | revealed, context) over 3120 位置的前提是
+<em>大量多样序列让联合统计可估</em>;8 条轨迹下,3120-位置联合分布是欠定的,过参数化 head 退化到比逐维均值还差。
+<strong>小数据下 per-dim 独立 CE 的强归纳偏置不是缺陷,是对的先验</strong> —— 联合建模在此是有害的自由度。
+<span class="en">Joint modeling needs data the 8-window set doesn't have; the independence prior of per-dim CE is correct here, not a defect.</span></li>
+<li><strong>幅度塌缩 = confidence-ranking 揭示调度引起,非 head 权重坏(两个控制实验隔离)。</strong>
+K=10 confidence 揭示下 token std 0.147 = GT 0.216 的 <strong>68%</strong>(CE v1 argmax 0.219=GT)。机制:confidence-first 先揭示最自信=低熵「接近静止」维(k=0 占数据 12%),
+锁定后剩余维被逼「与静止联合一致」→ 整序列拉向静止。<strong>两个控制实验各自隔离出元凶:</strong>
+<table style="margin:8px 0">
+<tr><th>解码(同 masked ckpt)</th><th>token std(GT 0.216)</th><th>MSE64</th><th>bin_acc</th></tr>
+<tr><td>confidence-rank, K=10(默认)</td><td class="x">0.147(68% GT)</td><td>0.0437</td><td>17.7%</td></tr>
+<tr><td><code>SONIC_CE_MASK_STEPS=1</code> 单次前向</td><td class="ok">0.19(88% GT)</td><td>0.0484</td><td>20.6%</td></tr>
+<tr><td><code>SONIC_CE_REVEAL=random</code> 随机揭示</td><td class="ok">0.18(83% GT)</td><td>0.0448</td><td>18.1%</td></tr>
+</table>
+<strong>结论(经 mimo 复审修正):去掉 confidence 排序(随机揭示或单次前向)幅度即恢复到 83-88% GT —— 塌缩是<em>调度</em>的产物,不是 MaskGIT 范式的死刑,我先前判「固有病」过早。</strong>
+但三种解码 MSE64 全在 0.044-0.048,<strong>一律远差于 CE v1 的 0.0174</strong> → 即便修掉塌缩,masked head 在 5777 帧上依然输给 per-dim 独立 CE。幅度塌缩是用户「动作幅度小」的来源之一,可缓解;但 head 的保真劣势不可缓解。
+<span class="en">Controls (per mimo's review): dropping the confidence ranking restores std to 83-88% GT — the collapse is the schedule, not the MaskGIT paradigm; my "inherent" call was premature. But MSE64 stays 0.044-0.048 across all decodes, far above CE v1's 0.0174 — fixing the collapse doesn't fix the head's fidelity loss on this data size.</span></li>
+<li><strong>history 经「离散化塞文本」通路是错的工程。</strong>K=3 帧 normalized state 各过 256-bin <code>np.digitize</code> 成数字串,
+拼成 <code>[STATE_HIST] … [ACTION]</code> 进 instruction。实测相邻帧约 <strong>48% 的(维,帧)动不到 1 个 bin</strong> ——
+近半历史 token 与当前帧同 bin(半冗余),却把文本加长 ~138 token,frozen VLM 无从学会忽略 → 净稀释 cross-attn memory。
+history 让每一窗都更差,坐实<strong>是通路实现错,不是「history 概念无用」</strong>。roadmap 把 history 排在 loss 之后没错,
+错在<strong>叠在一个已经塌缩的 masked head 上 + 用文本通道而非数值 state encoder</strong>。
+<span class="en">Half the history tokens are bin-identical to the current frame (redundant) yet add ~138 tokens that dilute the cross-attn memory — wrong pathway, not a wrong idea.</span></li>
+</ol>
+
+<div class="warn">
+<strong>主结论:任何「加 head 容量/表达力」的改动(layerwise / masked / history),在 5777 帧上一律开环退步。</strong>
+最可能的瓶颈是<strong>数据规模</strong>而非 head 表达力,方向应转 <a href="sonic_vla_critique_roadmap.html">roadmap P2 扩数据</a>。
+<span class="en">Main finding: every capacity-adding head change regresses open-loop on 5777 frames; the likely bottleneck is data scale, pivot to P2.</span>
+</div>
+
+<div class="warn">
+<strong>⚠️ 诚实边界 / 待排 confound(mimo 复审 2026-06-11,采纳)—— 「架构死刑」尚未完全证实,两个更便宜的解释未排除:</strong>
+<ol style="margin:8px 0 0">
+<li><strong>d_model 不公平对比(必须重训才能排)。</strong>CE v1 用 <code>d_model=1024</code>,masked 用 <code>768</code>(当初为省 3120-token self-attn 显存而降),每位置表达力差 <code>(1024/768)²≈1.78×</code>。
+<strong>这是被当成常量的 confound。</strong>判「小数据撑不起联合分布」前,必须先排除「768 不够用」这个更简单的解释。<strong>待办实验 A(~1 天):masked + d_model=1024 + 随机揭示 + K=20,同 6000 步;仍输 CE v1 → 架构死刑坐实,接近 → 是 d_model/调度。</strong></li>
+<li><strong>train/inference gap(masked 路线固有,但可缓解)。</strong>训练时 revealed 位置永远喂 36% 完美 GT token;推理时全 [MASK] 起步、喂自己的预测,误差逐轮累积。33-bin 信息密度低,误差传播比图像 MaskGIT 更猛。随机揭示已部分缓解(见上),但根治需 scheduled-sampling 式训练。</li>
+<li><strong>history 概念未被否定,只否定了文本通路。</strong>「离散化塞文本」破坏 state 维间物理耦合 + 稀释 cross-attn,确实是错通路;但<strong>连续 state encoder(K×46 → MLP/1D-conv → concat 进 head cross-attn memory)是完全不同的信息瓶颈,未测。</strong>
+<strong>待办实验 B(~1 天):CE v1 + 数值 state encoder,有提升 → history 概念有效、文本通路是 bug。</strong></li>
+</ol>
+<strong>裁决:先做 A/B 两个 ~1 天的便宜消融排除 confound,再决定是否投 5-10 天的 P2 扩数据。</strong>不在排除 confound 前直接跳最贵方案。
+<span class="en">Per mimo: the d_model mismatch (1024 vs 768) and the train/inference gap are unexcluded confounds; run the two ~1-day ablations (A: d_model=1024 + random reveal; B: CE v1 + continuous state encoder) before committing to data scaling.</span>
+</div>
+<p class="small">
+复现:<code>CONFIG=scripts/starvla/configs/sonic_qwen3_5_4b_ce_masked{,_hist}.yaml bash scripts/starvla_sonic_watchdog.sh</code>(kernel-6.17 GPF 由 watchdog 自愈);
+评测 <code>scripts/starvla_dump_pred_tokens.py</code>(已支持 <code>state_history</code> 透传);解码诊断开关 <code>SONIC_CE_MASK_STEPS=1</code> / <code>SONIC_CE_REVEAL=random</code>(均默认 off,零行为变化);
+预测 token 在 <code>datasets/sonic_vla_pred_starvla_ce_masked{,_hist}/</code>;ckpt 留档 <code>outputs/starvla/sonic_qwen3_5_4b_ce_masked{,_hist}/</code>。
+本节经 <span class="w-mimo who">mimo-v2.5-pro</span> 独立复审:采纳 d_model confound + 随机揭示验证 + history 连续 encoder 三点,「固有病」措辞已软化为「调度产物」。
+</p>
+
+<h3>11.6 · 附带修掉一个真 serve bug:state 归一化的置换错位 / A real serving bug, fixed</h3>
+<p>
+排查上面负结果时,顺手验证了 serving 端 state 归一化与训练侧是否逐元素对齐 —— <strong>发现一个独立的真 bug</strong>(与开环负结果无关,
+因为 dump 走训练 dataloader 不过 serve,但它污染了<em>所有</em> live demo 的幅度判断)。
+</p>
+<div class="warn">
+<strong>根因:concat-then-normalize 双重置换。</strong><code>serve_starvla_sonic.py</code> 的 <code>MinMax</code> 把 injector 送来的
+「按 <code>_STATE_GROUPS</code> 顺序拼接的 state43」直接当 raw <code>observation.state</code> 列做归一化。但 <code>_STATE_SLICES</code> 是个<strong>置换</strong>:
+raw 列里 <code>left_hand=22:29</code> 排在 <code>right_arm=29:36</code> <em>之前</em>,与 <code>_STATE_GROUPS</code> 的列举顺序相反。
+结果 <code>right_arm</code> 通道被喂进 <code>left_hand</code> 的 min/max、<code>left_hand</code> 被喂进 <code>right_arm</code> 的<strong>退化(全零)</strong>统计 →
+<strong>right_arm proprio 通道在 serve 时恒为常数。</strong>
+<span class="en">_STATE_SLICES is a permutation; concat-then-normalize fed right_arm through the wrong (degenerate, all-zero) stats — the channel came out constant.</span>
+</div>
+<table>
+<tr><th>逐帧 max&#124;serve − train&#124;(4 个采样帧)</th><th>worst</th></tr>
+<tr><td>修复前(concat-then-normalize)</td><td class="x">1.0573 — right_arm 整段常数</td></tr>
+<tr><td><strong>修复后(scatter-to-raw-then-normalize)</strong></td><td class="ok"><strong>0.000242 — 纯 fp16 量化噪声</strong></td></tr>
+</table>
+<p>
+修法:<strong>先把每组散射回 raw 列位置 → 归一化整条 43-vec → 再按训练 key 顺序重切</strong>(数据结构正确性,而非打补丁)。
+G1 大量动作(fight 的挥拳、dance 的拍手)右臂是主动肢;serve 时右臂 proprio 恒定,等于让 VLA 在闭环里<strong>瞎了一只手</strong> ——
+这会独立地压低 live 幅度,与 masked head 的塌缩叠加。<strong>CE v1 的 live demo「幅度小」里,有一部分是这个 bug 的贡献,需重测厘清。</strong>
+<span class="en">Right-arm proprio was frozen at serve time on a robot whose fights/claps are right-arm-driven — an independent amplitude suppressor, now fixed.</span>
+</p>
+<div class="good">
+<strong>下一步(已不依赖更多训练):</strong>用<strong>修复后的 serve</strong> 重测 CE v1(live 权威默认 expected-T0.5)live demo,
+把「serve bug 致幅度小」与「CE v1 head 本身保真不足」两个因素拆开。masked / history 两个 ckpt 留作负面存档,
+<strong>路线转 P2 扩数据</strong>。
+</div>
+
 <hr>
 <p class="small">
 关联文档:<a href="groot_sonic_wbc_route.html">架构侧路线总览</a> · <a href="sonic_vla_critique_roadmap.html">三模型联合评审 + P0-P4 roadmap</a> · <a href="sonic_action_sequencing.html">动作串联</a> · <a href="sonic_lafan_expansion.html">LAFAN 扩容</a>。<br>
 头脑风暴:Claude Opus 4.8 + codex gpt-5.5 + mimo-v2.5-pro,各自独立批判同一份 brief 后合并 · 2026-06-09。<strong>本文经 codex gpt-5.5 复审</strong>(18 点 punch-list:FSQ bin/CE 级数、归一化数学、horizon 算力、预训练血缘措辞、+2 盲点 WBC 可行性闸门 / chunk 边界相位,均已采纳;裁决"横向移动·非修复"复审确认不软化)。<br>
-<strong>2026-06-10 实施前二轮复审(Opus)</strong>:盲点 +4(离线 dump 免 serving / state 46 维与 [-1,1] clip 与 include_state 默认 off / teacher-forcing 口径 / epoch 对齐与 LR 铺满),测床改 LAFAN flow3,新增 §11 本机实施方案。
+<strong>2026-06-10 实施前二轮复审(Opus)</strong>:盲点 +4(离线 dump 免 serving / state 46 维与 [-1,1] clip 与 include_state 默认 off / teacher-forcing 口径 / epoch 对齐与 LR 铺满),测床改 LAFAN flow3,新增 §11 本机实施方案。<br>
+<strong>2026-06-11 P0 系列负结果鉴定(Opus 4.8 + mimo-v2.5-pro 复核)</strong>:新增 §11.5(masked CE / proprio history 双负结果 + 架构死因:小数据撑不起联合分布 / 迭代解码幅度塌缩 / history 文本通路稀释)+ §11.6(serve state 归一化置换 bug 实锤 + 修复)。裁决:停止雕 head,转 P2 扩数据。
 </p>
 </div>
 </body>

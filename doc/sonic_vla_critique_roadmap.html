@@ -195,6 +195,21 @@
 <h2>4 · Roadmap — 让它真正「prompt 驱动更多动作」</h2>
 <p>泛化（新 prompt/新动作）+ 闭环稳 + 可实时下 prompt 三个目标，按 ROI 和依赖排序。<span class="en">Ordered by ROI and dependency, not by appeal.</span></p>
 
+<div class="bad">
+<strong>⚠️ 2026-06-11 实施进展 / Implementation update — P0① 与 P1⑤ 已实测,结论修正 roadmap。</strong>
+详见 <a href="sonic_starvla_swap_brainstorm.html">StarVLA swap brainstorm §11</a>。摘要:
+<ul style="margin:8px 0 0">
+<li><strong>P0① 改 loss = ✅ 成功(CE v1)</strong>:per-dim 交叉熵把开环 MSE64 从 flow head 的 0.0374(背模板)降到 <strong>0.0174</strong>(比模板好 53%)—— roadmap 排序正确,这是最高 ROI 的一刀,已坐实。</li>
+<li><strong>P0① 的「升级版」联合分布 head = ❌ 负结果</strong>:MaskGIT masked CE(建 p(masked&#124;revealed))在 5777 帧上 MSE64 <strong>0.0437</strong>,<em>比常数模板还差 19%</em>。小数据撑不起联合分布 + 迭代解码幅度塌缩(token std 跌到 GT 的 68%)。</li>
+<li><strong>P1⑤ obs/proprio history = ❌ 当前实现负结果</strong>:K=3 帧 history <em>经离散化塞 instruction 文本</em>叠在 masked head 上,MSE64 <strong>0.0472</strong>(每窗都更差)。约 48% 历史 token 与当前帧同 bin = 半冗余稀释 cross-attn。<strong>不是 history 概念无用,是「文本通路 + 叠在塌缩 head 上」的工程选择错</strong> —— history 若做,应走数值 state encoder 而非文本,且基于健康的 CE v1 而非 masked。</li>
+</ul>
+<strong>修正后的下一步(经 mimo 复审):先做两个 ~1 天消融排 confound,再决定是否转 P2。</strong>mimo 指出 masked 的负结果有两个未排除的更便宜解释:
+<strong>① d_model 不公</strong>(CE v1=1024 vs masked=768,每位置表达力差 1.78×);<strong>② history 文本通路 ≠ history 概念</strong>(连续 state encoder 未测)。
+幅度塌缩已验证是 confidence-ranking 揭示调度引起(随机揭示把 token std 从 68% 恢复到 83% GT),非 MaskGIT 范式死刑。
+<strong>实验 A:masked + d_model=1024 + 随机揭示;实验 B:CE v1 + 数值 state encoder。两者都负 → 再投 5-10 天 P2 扩数据。</strong>
+<span class="en">Per mimo's review: the masked-head loss has two cheaper unexcluded explanations (d_model 1024 vs 768; text-pathway ≠ history concept). The amplitude collapse is the confidence-reveal schedule (random reveal restores std to 83% GT), not a paradigm death. Run two ~1-day ablations before committing to P2 data scaling.</span>
+</div>
+
 <div class="svgbox">
 <svg viewBox="0 0 920 230" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
   <rect x="0" y="0" width="920" height="230" fill="#ffffff"/>

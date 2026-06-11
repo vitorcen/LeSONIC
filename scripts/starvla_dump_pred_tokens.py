@@ -128,6 +128,8 @@ def main() -> int:
                 ex = {"image": s["image"], "lang": s["lang"]}
                 if "state" in s:
                     ex["state"] = np.asarray(s["state"], dtype=np.float32)
+                if "state_history" in s:  # P0+History models ([STATE_HIST] prompt)
+                    ex["state_history"] = np.asarray(s["state_history"], dtype=np.float32)
                 examples.append(ex)
                 gts.append(np.asarray(s["action"], dtype=np.float32))  # (AH, 78) identity raw
                 prompt = s["lang"]

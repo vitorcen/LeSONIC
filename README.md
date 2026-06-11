@@ -29,6 +29,27 @@ https://github.com/user-attachments/assets/add401c4-4628-4713-b82b-ab8b9b664a50
 > 原理（token=「什么」/ WBC=「怎么」、**为何仍需参考 `.pkl`**、数据集 6 步管线、**两道筛查闸门**）：[`doc/sonic_vla_principles.html`](doc/sonic_vla_principles.html)。
 > 跑法 `bash scripts/gear_sonic_flow3.sh`（🔁 离线回放，**保证流畅**）/ `bash scripts/gear_sonic_live_demo.sh @flow3`（🛰️ live 实时推理）。逐窗口筛选见 `LAFAN.ipynb`。
 
+## 🧱 路线 B · MaskBeT — 从零小模型当 token 生产者 / Route B, from-scratch token producer
+
+同一条 SONIC 链路，把 token 生产者从 GR00T（2B VLM）换成 **[MaskBeT](https://github.com/vitorcen/MaskBeT)**
+—— 一个**无 backbone、从零 25M** 的 masked transformer（MaskGIT 并行解码 40×78 FSQ token 网格），
+作为 `LeSONIC/MaskBeT` submodule。目的：不靠 VLM 验证「差距来自数据还是骨干」。
+_Swap the token producer for a backbone-free, from-scratch 25M masked transformer — same SONIC WBC wire._
+
+**flow3 8 窗口开环 MSE-64（同记忆口径）**：
+
+| 生产者 / producer | expected | argmax | 备注 |
+|---|---|---|---|
+| GR00T N1.7（2B VLM + 动作预训练） | — | **0.0026** | 天花板 |
+| **MaskBeT 25M（从零）** | **0.0090** | 0.0193 | expected 反超 CE best |
+| StarVLA CE v1（4B 冻结 VLM） | 0.0125 | 0.0174 | 前 best |
+| per-window-mean 模板 | — | 0.0367 | 下限 |
+
+> **结论**：25M 从零 ≈/优于 4B 冻结 VLM（argmax 打平、expected 反超）→ **瓶颈是数据 + obs，不是骨干**。
+> 闭环目检（RELAX 下 flow3 六段循环）幅度比 CE 足（iterative argmax 保 token std ≈ GT）。
+> 都是记忆口径（无 held-out），held-out 泛化是下一步。设计/数据/尺寸/外审：[`MaskBeT/doc/maskbet_design.html`](MaskBeT/doc/maskbet_design.html)。
+> 跑法 `bash scripts/maskbet_sonic_live_demo.sh @flow3`（server :5557，Isaac 侧零改动；见 `LAFAN.ipynb`）。
+
 ## 🤗 发布物 / Published
 
 | | |
@@ -55,6 +76,8 @@ LeSONIC/
 │   ├─ gr00t_dump_pred_tokens.py    # ④ open-loop dump 预测 token
 │   ├─ gear_sonic_inject.sh         # 离线 token 回放注入（RELAX=1 默认）
 │   ├─ gear_sonic_live.sh           # ✅ 闭环：live GR00T 在环驱动 WBC（BOOTSTRAP/RELAX 可调）
+│   ├─ serve_maskbet_sonic.py       # 路线 B：MaskBeT token server（同 ZMQ wire，:5557）
+│   ├─ maskbet_sonic_live_demo.sh   # 路线 B：一键 live demo（MaskBeT → SONIC WBC）
 │   ├─ gr00t_resume_heal.sh         # 自愈 resume（删损坏 ckpt + 续训，扛 mid-save 崩）
 │   ├─ gr00t_keep_stage_ckpts.sh    # 阶段 ckpt hardlink 进 keep/（防 HF 滚删，零额外磁盘）
 │   ├─ gr00t_ckpt_intact.py         # 校验 safetensors 完整（resume 用）
@@ -72,6 +95,7 @@ LeSONIC/
 │   ├─ sonic_vla_closeloop_validation.html# 闭环验证（无记忆策略本质 + bootstrap）
 │   └─ sonic_vla_critique_roadmap.html    # 🔬 三模型联合评审 + P0–P4 roadmap
 ├─ SONIC.ipynb                     # 全流程一键 notebook（置根；③区WBC原生 / ④区自训驱动）
+├─ MaskBeT/                        # 路线 B submodule (vitorcen/MaskBeT)——从零 25M masked transformer
 ├─ dependencies/                   # 自包含 submodule（clone 用 --recursive）
 │   ├─ Isaac-GR00T/               # 嵌套 submodule (NVIDIA/Isaac-GR00T, N1.7)——LeSONIC 自有副本，与父 PickOrange 互不干扰
 │   └─ GR00T-WholeBodyControl/    # 嵌套 submodule (NVlabs)，GEAR-SONIC WBC（SONIC 专属）

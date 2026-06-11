@@ -60,8 +60,21 @@ class MinMax:
         return out
 
     def __call__(self, state43: np.ndarray, pg3: np.ndarray) -> np.ndarray:
-        # training concat order: per-group slices of the normalized 43-vec, then gravity
-        n43 = self._norm(state43.astype(np.float32), self.smin, self.smax)
+        # state43 arrives concatenated in _STATE_GROUPS order, but smin/smax are
+        # indexed by RAW observation.state column and _STATE_SLICES is a PERMUTATION
+        # (left_hand=22:29 sits before right_arm=29:36 in raw, the reverse of the
+        # _STATE_GROUPS order). Scatter each group back to its raw column slice
+        # FIRST, normalize the raw 43-vec, then re-slice in training key order.
+        # The old concat-then-normalize double-permuted: it fed right_arm through
+        # left_hand's stats and pushed left_hand through right_arm's degenerate
+        # (all-zero) stats -> the right_arm proprio channel came out constant 0.
+        raw = np.zeros(43, dtype=np.float32)
+        ofs = 0
+        for g in _STATE_GROUPS:
+            a, b = _STATE_SLICES[g]
+            raw[a:b] = state43[ofs:ofs + (b - a)]
+            ofs += b - a
+        n43 = self._norm(raw, self.smin, self.smax)
         npg = self._norm(pg3.astype(np.float32), self.pmin, self.pmax)
         groups = [n43[a:b] for g, (a, b) in
                   ((g, _STATE_SLICES[g]) for g in _STATE_GROUPS)]
@@ -69,7 +82,8 @@ class MinMax:
 
 
 class SonicStarVLAPolicy:
-    def __init__(self, ckpt: str, stats_json: str, img_size: int = 448):
+    def __init__(self, ckpt: str, stats_json: str, img_size: int = 448,
+                 proprio_history: int = 0):
         from PIL import Image  # noqa: F401 (validated import)
         sys.path.insert(0, STARVLA_DIR)
         cwd = os.getcwd()
@@ -83,8 +97,11 @@ class SonicStarVLAPolicy:
         torch.cuda.empty_cache()
         self.norm = MinMax(stats_json)
         self.img_size = img_size
+        self.proprio_history = proprio_history
+        self._state_buf: list = []  # rolling buffer for proprio history
         print(f"[serve] model up: {os.path.basename(ckpt)} "
-              f"({torch.cuda.memory_allocated()/1e9:.1f}G)", flush=True)
+              f"({torch.cuda.memory_allocated()/1e9:.1f}G, "
+              f"proprio_history={proprio_history})", flush=True)
 
     def get_action(self, observation: dict, options=None):
         from PIL import Image
@@ -95,12 +112,22 @@ class SonicStarVLAPolicy:
         st = observation["state"]
         state43 = np.concatenate([np.asarray(st[g]).reshape(-1) for g in _STATE_GROUPS])
         pg3 = np.asarray(st["projected_gravity"]).reshape(-1)[:3]
-        state46 = self.norm(state43, pg3)[None]  # (1,46) like training sample["state"]
+        state46 = self.norm(state43, pg3)  # (46,) like training sample["state"]
+
+        # Maintain rolling buffer for proprio history
+        self._state_buf.append(state46.copy())
+        if len(self._state_buf) > self.proprio_history:
+            self._state_buf = self._state_buf[-self.proprio_history:]
 
         lang = observation["language"]["annotation.human.task_description"]
         prompt = lang[0][0] if isinstance(lang, (list, tuple)) else str(lang)
 
-        ex = {"image": [img], "lang": str(prompt), "state": state46.astype(np.float32)}
+        ex = {"image": [img], "lang": str(prompt),
+              "state": state46[None].astype(np.float32)}
+        # Build state_history if model expects it (numpy, like training)
+        if self.proprio_history > 0 and len(self._state_buf) >= self.proprio_history:
+            hist = np.stack(self._state_buf[-self.proprio_history:])  # (K, 46)
+            ex["state_history"] = hist[None].astype(np.float32)  # (1,K,46)
         out = self.fw.predict_action(examples=[ex])
         act = np.asarray(out["normalized_actions"], dtype=np.float32)  # (1,horizon,78)
         return {"action.motion_token": act[:, :, :64]}                 # (1,horizon,64)
@@ -112,12 +139,15 @@ def main() -> int:
     ap.add_argument("--stats", default=os.path.join(
         REPO_ROOT, "datasets/sonic_vla_lerobot_flow3/meta/stats.json"))
     ap.add_argument("--port", type=int, default=5556)
+    ap.add_argument("--proprio-history", type=int, default=0,
+                    help="Number of past frames for proprio history (K)")
     args = ap.parse_args()
 
     import msgpack_numpy as mnp
     import zmq
 
-    policy = SonicStarVLAPolicy(os.path.abspath(args.ckpt), os.path.abspath(args.stats))
+    policy = SonicStarVLAPolicy(os.path.abspath(args.ckpt), os.path.abspath(args.stats),
+                                proprio_history=args.proprio_history)
 
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REP)

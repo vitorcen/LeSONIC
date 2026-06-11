@@ -166,7 +166,7 @@ loss = ((pred_actions - velocity) ** 2).mean()   # MSE-on-velocity,连续目标
 <tr><td><strong>归一化陷阱</strong><br><span class="small">最容易出 silent bug</span></td><td>StarVLA dataloader 默认 <strong>q99 / min-max 归一化</strong>。FSQ token 已经在 <code>k/16, k∈[-8,8]</code> 即 <code>[-0.5,0.5]</code> 均匀网格上。统计派生的 q99/minmax <strong>会移动每维 bin 中心/边界</strong>(除非把 stats 强制对齐已知 token scale):若 server 端反归一化与训练侧 stats 稍有不一致,<strong>snap-to-grid 就落错格</strong>。两个安全选项要<strong>明确选一个并对齐逆变换</strong>:① <code>identity</code>(目标留在 <code>[-0.5,0.5]</code>,head/server 都不缩放)② <code>token/0.5</code>(把 <code>[-0.5,0.5]</code> 缩到 <code>[-1,1]</code>,推理后必须 ×0.5 还原再 snap)。并 log: 模型前/后、反归一化后的 min/max + off-grid 比例 + 出界比例 + 每维 snapped-code 直方图。</td></tr>
 <tr><td><strong>action_horizon 16→40</strong></td><td>PI_v3 默认 16,SONIC WBC 吃 40 步 chunk。拉到 40 = DiT 序列 <strong>2.5× 长</strong>(自注意力部分约二次方于序列长;总步耗还含 VLM/cross-attn/MLP,非整体二次方),且想迁移的 Bridge/RT-1 预训练头是在更短 horizon 训的 → <strong>权重错位,是真回归风险</strong>(<span class="who w-mimo">mimo</span>)。公平对比必须直接训 horizon 40。</td></tr>
 <tr><td><strong>action 不是关节</strong></td><td>输出是 64 维 <strong>WBC latent token</strong>,不是 motor 关节。必须 bypass:motor-deg→弧度转换、关节归一化、arm 任务继承的 action clipping、gripper/mask 约定、delta-action 约定。<code>StarVLAServicePolicyClient</code> 需新分支不做后处理。</td></tr>
-<tr><td><strong>state pathway 变了</strong></td><td>PI_v3 可经<strong>当前 state encoder</strong> 和/或把 proprio 分箱成<strong>文本 token</strong> 拼进指令(<code>[STATE] 95 133 … [ACTION]</code>)条件化 —— <strong>两条都只编码当前帧,不含历史/相位</strong>。29-DoF + projected_gravity = 32 维要新建 embodiment 归一化器(SO-101/Bridge 的没法用)。非 blocker,但影响 prompt→token 映射。</td></tr>
+<tr><td><strong>state pathway 变了</strong></td><td>PI_v3 把 proprio 分箱成<strong>文本 token</strong> 拼进指令(<code>[STATE] 95 133 … [ACTION]</code>)条件化 —— <strong>只编码当前帧,不含历史/相位</strong>。维度 = <code>observation.state(43,含手指零填)</code> + <code>projected_gravity(3)</code> = <strong>46</strong>(初稿误写 32,以实录数据集为准)。⚠️ 两个真坑见 §8 盲点 8:离散化 bins 固定 <code>[-1,1]</code> → state 必须 min_max;<code>include_state</code> 默认 off → 必须显式开。</td></tr>
 <tr><td><strong>单相机</strong></td><td>SONIC 只有 ego_view(480×640);StarVLA SO-101 是 front+wrist 双相机。需新 <code>data_config.py</code> 单相机。<code>_pack_sample</code> 的 448 resize 仍适用(480×640→448 损失比 SO-101 的 224→448 小)。</td></tr>
 </table>
 
@@ -202,12 +202,25 @@ ego 相机 attach 到 pelvis <strong>朝下看地面</strong>,对动作判别<st
 <li><span class="who w-codex">codex</span> <strong>真正的接口</strong>不是"VLA 控制机器人",而是 <strong>"VLA 为冻结 WBC 挑选 latent 参考"</strong>。核心科研问题不是"Qwen3-VL 是否更会机器人",而是 <strong>"你的 token 分布是不是 SONIC decoder 的忠实控制语言"</strong> —— 离散码保真度、相位可观测性、WBC latent 流形覆盖率,都比 VLM 大小重要。</li>
 <li><span class="who w-codex">codex</span> <strong>WBC 可行性在 VLA 上游</strong>:即便 token 预测完美,<strong>WBC 也执行不了它冻结 decoder 稳定流形之外的动作</strong>。判 StarVLA 之前要先过 <strong>严格终止(RELAX 关)下的 WBC 跟踪筛查</strong> —— 这道闸门与换不换骨干无关,是动作本身能不能被这个 WBC 跟住。</li>
 <li><span class="who w-codex">codex</span> <strong>chunk 边界 / 相位重置</strong>:horizon-40 预测可能 <strong>MSE 好看,却在段落起点 / prompt 切换处崩</strong>(无相位/历史)。评测指标必须含 <strong>prompt 切换后头 N 步误差 + chunk 边界不连续度</strong>,不能只看整段 MSE。</li>
+<li><span class="who w-opus">Opus 复审补</span> <strong>§5 按 serving 栈写,但 A/B 根本不需要 server</strong>:GR00T 侧的对照数字来自<strong>离线 dump 管线</strong>(数据集 obs → predict_action → npz → 注入器),StarVLA 同理 —— 直接调 <code>framework.predict_action()</code> 拿 <code>normalized_actions</code>,不经 websocket / <code>StarVLAServicePolicyClient</code> / PolicyServerWrapper 的反归一化。§5 的"归一化陷阱"从一张表收敛为<strong>训练侧一个选择</strong>(identity:action key 不进 <code>normalization_modes</code>,loader 源码 <code>if modality_key in self.normalization_modes</code> 不在即跳过),dump 侧拿到的就是 token 原值。serving 那张表只在 A/B 之后做 live demo 才生效。</li>
+<li><span class="who w-opus">Opus 复审补</span> <strong>state 维度写错 + 两个 state 真坑</strong>:§5 说"29-DoF + gravity = 32 维" —— <strong>错</strong>,实录数据集是 <code>observation.state=43</code>(含手指,后 14 维零填) + <code>projected_gravity=3</code> = <strong>46 维</strong>。更要命:① PI_v3 <code>state2str_transform</code> 的离散化 bins 固定 <code>[-1,1]</code>(256 级) —— 关节弧度(膝/肩 &gt;2 rad)不先 min_max 归一化直接喂,<strong>出界值全 clip 进边缘 bin,proprio 信号被毁</strong>(文档归一化一节只盯 action 漏了 state);② loader 的 state 打包受 <code>datasets.vla_data.include_state</code> 控制,<strong>默认 off</strong>(SO101 就是 stateless 跑的) —— 忘开就退化成 (image,prompt)→token,与吃 proprio 的 GR00T 不可比。</li>
+<li><span class="who w-opus">Opus 复审补</span> <strong>teacher-forcing 开环口径要写死</strong>:离线 dump 喂的是数据集<strong>真 obs</strong>(teacher forcing)。GR00T 锚点同口径 → A/B 公平,但结论只能限定<strong>开环 token 保真度</strong>;闭环漂移 / 一次性动作 settle 到站立,是 live 才测得到的另一层。</li>
+<li><span class="who w-opus">Opus 复审补</span> <strong>公平性按 epoch(样本量)对齐,不按 step,且 LR schedule 必须铺满</strong>:GR00T flow3 = 6000 步 × global batch 4 = 24k 样本 ≈ 4.15 epoch / 5777 帧。StarVLA bs=4 × 6000 步同样本量。教训:早前 GR00T "0.065 平台"纯粹是 max_steps 截断让 cosine LR 早衰的<strong>欠训假象</strong> —— 别在 StarVLA 上重演后错判"StarVLA 不行"。</li>
 </ol>
 
 <h2>9 · 最便宜的 go/no-go 实验 / Cheapest experiment</h2>
 <p>三方一致:<strong>别从 live Isaac rollout 起步</strong>。先离线 token 生产者测试。</p>
+<div class="good">
+<strong>2026-06-10 修订:测床换成 LAFAN flow3,不是 BonesSeed。</strong>GR00T N1.7 刚在
+<code>datasets/sonic_vla_lerobot_flow3</code>(8 窗口 / 5777 帧 / 8 prompt)上训完,锚点新鲜:
+<strong>train loss 0.052 · open-loop MSE 平均 0.00257 · 全 8 窗口 ≤0.004</strong>(checkpoint-6000,
+6000 步 × global batch 4)。同数据 + 同样本量训 StarVLA 才是干净 A/B;BonesSeed 的 GR00T 数字
+(0.0011)是另一口径的 8k 老 run,扯进来只会浑水。
+<span class="en">Testbed switched to LAFAN flow3 — the GR00T anchor numbers are fresh and
+epoch-matched comparison is possible.</span>
+</div>
 <ol>
-<li><strong>实验 A — 离线过拟合 sanity</strong>:复用现成 <code>wsagi/SONIC-VLA-BonesSeed</code>,写 <code>UNITREE_G1_SONIC</code> data_config(action=64 token / video=ego_view / state=29+gravity),冻 VLM 训 PI_v3 头,horizon=40,<strong>显式 token 归一化</strong>,推理 snap-to-grid,跑 ~500-2000 步。报告<strong>不只 MSE</strong>:连续 MSE + snapped MSE + 每维 FSQ bin 准确率 + off-grid 比例 + 出界比例 + 每动作 + <strong>chunk 边界不连续度 + prompt 切换后头 N 步误差</strong>。</li>
+<li><strong>实验 A — 离线过拟合 sanity(LAFAN flow3)</strong>:写 <code>unitree_g1_sonic</code> data_config(action=64 token / video=ego_view / state=43+gravity=46,<code>include_state: true</code> + state min_max),冻 VLM 训 PI_v3 头,horizon=40,<strong>action 走 identity(不进 normalization_modes)</strong>,推理 snap-to-grid,先 ~500 步 smoke 再放量。报告<strong>不只 MSE</strong>:连续 MSE + snapped MSE + 每维 FSQ bin 准确率 + off-grid 比例 + 出界比例 + 每窗口 + <strong>chunk 边界不连续度 + prompt 切换后头 N 步误差</strong>。</li>
 <li><strong>实验 B — 真正的 held-out</strong>:7×1ep 下帧级随机切分是<strong>假的</strong>。用 LOMO(留 1 动作整 ep)/ 每动作留后半段 / prompt 改写 / transition 边界。</li>
 <li><strong>实验 C — 最小 Isaac rollout</strong>:先 <code>squat→dance→macarena</code>(自持,免 bootstrap),再 <code>squat→walk→kick→dance</code>(用与 GR00T 同款 bootstrap 拐杖)。</li>
 </ol>
@@ -236,10 +249,147 @@ ego 相机 attach 到 pelvis <strong>朝下看地面</strong>,对动作判别<st
 <strong>一个例外</strong>:若计划把 SONIC scale 到几百个多样自然语言 prompt(组合 / 改写 / "squat then kick while waving"),则 Qwen3-VL 的语言 grounding 变得有价值 —— 但那是<strong>未来数据-scaling 论点,不是今天的架构论点</strong>。
 </p>
 
+<h2>11 · 实施方案(2026-06-10 定稿,本机 A/B)/ Implementation plan (local A/B)</h2>
+<p>
+用户拍板:按 <strong>framing ①(干净 A/B 基线)</strong>实施,测床 = <strong>LAFAN flow3</strong>(GR00T N1.7 刚训完的同一份数据)。
+全程本机 4090-24G,<strong>离线管线,不碰 serving 栈</strong>。
+<span class="en">Approved as framing ① — a clean A/B baseline on the LAFAN flow3 dataset, local 4090, offline pipeline only.</span>
+</p>
+<table>
+<tr><th>项 / Item</th><th>定稿值 / Decision</th></tr>
+<tr><td>框架 / backbone</td><td><code>QwenPI_v3</code> + <code>Qwen/Qwen3.5-4B</code>(hidden 2560 / 32 层,本地 HF cache 已有;PI_v3 运行时自动对齐 hidden,DiT depth=32 @ <code>action_dit_hidden_dim=1024</code>)。冻结 VLM(<code>freeze_modules: qwen_vl_interface</code>),只训 head。</td></tr>
+<tr><td>数据接线</td><td>新 <code>unitree_g1_sonic</code> robot_type:video=<code>ego_view</code>(单相机,480×640→448);state=7 组关节(43)+<code>projected_gravity</code>(3)=46,<strong>min_max</strong>(喂进 <code>[-1,1]</code> 离散化前必须);action=<code>motion_token</code>(64),horizon <strong>40</strong>,<strong>identity</strong>(不进 <code>normalization_modes</code>,token 网格 <code>k/16</code> 原样保留);<code>include_state: true</code> 显式开。数据集 <code>meta/modality.json</code> 是 GR00T exporter 产物,starVLA 的 gr00t_lerobot loader 同格式直读。</td></tr>
+<tr><td>训练预算</td><td>bs=4 × <code>max_train_steps=6000</code> = 24k 样本,<strong>与 GR00T flow3 锚点同样本量</strong>(≈4.15 epoch);cosine LR 铺满全程;save_interval=500(整除 6000),keep_last=3。VRAM 预算 ~20-22G(4B 冻结 bf16 ~8G + 32 层 DiT head + ZeRO-2 states);<strong>OOM 第一杠杆 = <code>repeated_diffusion_steps</code>(PI_v3 默认 2→1),第二 bs→2(步数等比放大),最后回退 Qwen3.5-2B</strong>。</td></tr>
+<tr><td>评测</td><td>离线 dump:数据集 obs → <code>predict_action</code> → 每窗口 (T,64) npz;指标 = 连续 MSE / snapped MSE / off-grid 比例 / 每窗口分解,直接对 GR00T 锚点表(avg 0.00257)。口径 = <strong>teacher-forcing 开环</strong>,结论限定开环 token 保真度。胜负不论,如实进 model card / README。</td></tr>
+<tr><td>env</td><td><code>starvla_eval_qwen35</code>(py3.11 + torch 2.6 cu124 + transformers 5.2.0 + flash-attn 2.7.4 + accelerate 1.10.1)补装 deepspeed → 即可 <code>accelerate launch --config_file deepspeed_zero2.yaml</code> 单卡训。</td></tr>
+<tr><td>预注册预测</td><td>三方先验:StarVLA <strong>会收敛但不优于 GR00T</strong>(同原罪 + 无机器人预训练头 + horizon 40 对 PI_v3 默认 16 是 2.5× 拉伸)。若打平 → 有用的负面结果(瓶颈=数据+obs,非模型家族);若显著差 → 印证预训练 base / horizon 错位论。<strong>赛前写下,赛后不许挪门柱。</strong></td></tr>
+</table>
+
+<h3>11.1 · 结果(2026-06-10 当晚跑完)/ Results</h3>
+<div class="bad">
+<strong>结果落在预注册预测的"显著差"一侧,且比预期更狠:StarVLA 收敛到了 per-window-mean 模板水平,没学到逐帧轨迹。</strong>
+<span class="en">StarVLA converged AT the per-window-mean template baseline — it learned per-prompt mean tokens, not trajectories.</span>
+</div>
+<table>
+<tr><th>模型(同数据、同 24k 样本、teacher-forcing 开环)</th><th>token MSE(64 维)</th><th>vs 模板基线</th></tr>
+<tr><td>per-window-mean 模板基线(GT 现算)</td><td>0.0367(global-mean 0.0408)</td><td>—</td></tr>
+<tr><td><strong>GR00T N1.7</strong> checkpoint-6000(锚点,78 维口径 0.00257)</td><td class="ok"><strong>≈0.0026</strong></td><td class="ok"><strong>低 14×</strong></td></tr>
+<tr><td><strong>StarVLA PI_v3</strong>(冻 Qwen3.5-4B,steps_6000)</td><td class="x"><strong>0.0374</strong>(78 维 0.0307,snapped 0.0377,bin_acc 16.5%)</td><td class="x">≈打平(没破基线)</td></tr>
+<tr><td>StarVLA steps_5000(趋势点)</td><td>0.0385</td><td>5000→6000 仅降 3% = <strong>已平台,非欠训</strong></td></tr>
+</table>
+<p>
+逐窗口:StarVLA 0.013–0.051,无一进 GR00T 区间(全 8 窗 ≤0.004);与各窗模板基线互有上下(combat/fierce 略破,run_circle/sprint 反而高于模板)。
+训练侧本身健康:loss 1.06→~0.06 平滑收敛,2.1 it/s @23.2G,LR cosine 铺满,epoch 0.35@500 步核对无误 —— <strong>不是训崩了,是头在这个配置下只够背模板</strong>。
+</p>
+<p><strong>诚实边界 / Caveats</strong>:① <code>repeated_diffusion_steps=1</code> 是 24G VRAM 逼出来的(2 在 step1 即 OOM),理论上压低 DiT 监督密度 —— 但 5000→6000 的平台说明加密度大概率改不了模板解;② 双方都是 teacher-forcing 训练集记忆口径(无 held-out),GR00T 的 0.0026 同样是记忆能力不是泛化;③ 仅 head-only 冻结 VLM 配置,未测解冻;④ 单 run 无 seed 重复。</p>
+<p><strong>判读</strong>:与 §7 的预判一致 —— 丢掉机器人预训练 base + horizon 16→40 拉伸 + (image,prompt,state)→token 的映射全靠从零 head,等样本预算下 PI_v3 头学不动 5777 帧×64 维的逐帧结构,塌缩到 prompt 条件均值。<strong>"换更好的 VLM 就行"的幻想在 SONIC 任务上被实测堵死;瓶颈确实不在骨干。</strong>復活路线(若有人非要):先修 flaw #2(per-dim CE)再谈,或上有机器人预训练的 GR00T 头 —— 那就是 GR00T 本 T 了。</p>
+<p><strong>GUI 闭环目检(用户裁决,combat 注入)</strong>:"有动作,但比 GR00T 生硬很多,勉强维持不倒地" ——
+与开环数字互证:模板级 token 给了动作<strong>轮廓</strong>(不是零),逐帧结构缺失让动作生硬,冻结 WBC 的平衡底座在硬扛不摔。
+<span class="en">Closed-loop GUI verdict: visible motion but much stiffer than GR00T, barely keeping balance — exactly what template-level tokens predict.</span></p>
+<div class="good">
+<strong>但对"要彻底开源、可自由改结构的底座来迭代"这一真实目标,StarVLA 仍是对的载体</strong>:本次 A/B 杀死的是
+<em>stock PI_v3 头 + 从零初始化</em>,不是代码库。GR00T 的 head/loss 是黑盒难改,StarVLA 全开 ——
+framing ②(FSQ-aware 损失:per-dim 交叉熵 / pre-quant latent)恰好需要这种可改性,且本次接线
+(data_config + identity 归一化 + dump 评测 + GUI 注入)全部复用。
+模板基线 0.0367 和 GR00T 0.0026 两根标尺已立好,改造收益一测便知。
+</div>
+
+<h3>11.2 · framing ② 实施:QwenPI_CE(per-dim FSQ 交叉熵)= 突破 / The CE-head breakthrough</h3>
+<p>
+用户定向迭代后当晚实施:新框架文件 <code>starVLA/model/framework/VLM4A/QwenPI_CE.py</code>
+(registry 自动发现,~90M 可训练 head:冻结 VLM last hidden → 40 个 horizon query 的 6 层
+TransformerDecoder cross-attn → logits (40,78,33bins),bin k∈[-16,16] 值=k/16,argmax 推理构造性在格)。
+先在 <strong>Run3 单窗口</strong>验证(749 帧×2000 步):MSE64 0.0117 = 该窗模板基线 0.0236 的一半,
+bin_acc 16.5%→50.5% —— 突破确认后放量。
+</p>
+<table>
+<tr><th>8 窗口 · 同数据同预算(24k 样本)开环</th><th>MSE64</th><th>bin_acc</th><th>vs 模板 0.0367</th></tr>
+<tr><td>GR00T N1.7 checkpoint-6000(锚点)</td><td class="ok">0.0026</td><td>—</td><td class="ok">低 14×</td></tr>
+<tr><td><strong>QwenPI_CE steps_6000</strong></td><td class="ok"><strong>0.0174</strong></td><td><strong>41.6%</strong></td><td class="ok"><strong>低 2.1× — 真在学轨迹</strong></td></tr>
+<tr><td>stock PI_v3 flow head(§11.1)</td><td class="x">0.0374</td><td>16.5%</td><td class="x">打平(背模板)</td></tr>
+</table>
+<p>
+<strong>全部 8 窗口逐一破各自模板基线</strong>(stock 0/8):最佳 fierce_swings <strong>0.0043</strong>
+已摸到 GR00T 区间(≤0.004)边缘;moonwalk 0.0247 / spin 0.0308 最难(最长窗口+舞蹈多样性)。
+<strong>结论:flaw #2(离散码当连续回归)是实测坐实的主瓶颈之一 —— 改 loss 一刀,同预算 2.1× —— 且这恰好是
+StarVLA 可自由改结构这一属性兑现的第一笔收益。</strong>与 GR00T 仍差 6.7×:剩余差距的候选解释=
+机器人预训练 base、layerwise 特征(CE v1 只用 last hidden)、head 容量(90M vs 0.5B+)、bin 软标签/分布蒸馏未做。
+<span class="en">One loss change, same budget, 2.1× past the template baseline that the stock flow head
+could not escape — flaw #2 empirically confirmed as a primary bottleneck, and the first concrete payoff
+of StarVLA's hackability. GR00T is still 6.7× ahead.</span>
+</p>
+<p class="small">
+训练注记:CE head 3.5 it/s(比 flow head 快 60%)@14.3G;本机 kernel-6.17 GPF 阵发(连续启动崩)
+由 <code>scripts/starvla_sonic_watchdog.sh</code>(SAVE_INTERVAL=250 密滚动+自动 RESUME+互斥)自愈完成。
+复现:<code>CONFIG=scripts/starvla/configs/sonic_qwen3_5_4b_ce.yaml MAX_STEPS=6000 bash scripts/starvla_sonic_watchdog.sh</code>;
+评测 <code>scripts/starvla_dump_pred_tokens.py</code>;预测 token 在 <code>datasets/sonic_vla_pred_starvla_ce/</code>(GUI 注入兼容)。
+</p>
+
+<h3>11.3 · 解码侧改进:argmax → expected-value(不重训)/ Decode-side fix, no retrain</h3>
+<p>
+GUI 实测 CE 模型"动作幅度小"。第一刀按 ROI 选<strong>解码侧</strong>:<code>predict_action</code>
+新增 <code>_decode()</code>(env <code>SONIC_CE_DECODE/SONIC_CE_TEMP/SONIC_CE_SNAP</code> 切换,默认 argmax 零行为变化),
+用同一 steps_6000 ckpt 离线扫 6 档:
+</p>
+<table>
+<tr><th>解码(8 窗口开环)</th><th>MSE64</th><th>std(GT 0.179)</th><th>jerk(GT 0.021)</th><th>bin_acc</th></tr>
+<tr><td>argmax(基线)</td><td>0.0174</td><td>0.179</td><td>0.022</td><td>41.6%</td></tr>
+<tr><td><strong>expected T=0.5(live 新默认)</strong></td><td class="ok"><strong>0.0125(−28%)</strong></td><td><strong>0.157</strong></td><td><strong>0.017</strong></td><td>38.2%</td></tr>
+<tr><td>expected T=1</td><td class="ok">0.0116(最低)</td><td>0.140(−22%)</td><td>0.014</td><td>33.7%</td></tr>
+<tr><td>expected T=2</td><td>0.0127</td><td class="x">0.120</td><td>0.011</td><td>28.2%</td></tr>
+<tr><td>sample T=0.5</td><td class="x">0.0189</td><td>0.176</td><td class="x">0.067(3× 抖)</td><td>36.8%</td></tr>
+<tr><td>sample T=1</td><td class="x">0.0229</td><td>0.176</td><td class="x">0.100</td><td>30.9%</td></tr>
+</table>
+<p>
+<strong>反直觉发现:离线 teacher-forcing 下 argmax 的 token std 已与 GT 持平(0.179)</strong>——
+"幅度小"不是 token 空间整体塌缩,而是闭环漂移下精度不足 → WBC 跟不准。采样解码保 std 但 jerk 3-5× GT、
+MSE 反升,排除。<strong>expected T=0.5 是 Pareto 甜点(MSE −28%、std 保 88%、jerk 反低于 argmax)</strong>,
+已设为 <code>starvla_sonic_live_demo.sh</code> 默认(snap 回格点,wire 协议零变化)。
+<span class="en">Counter-intuitive: offline argmax token std already matches GT — the small live amplitude
+is closed-loop accuracy, not mode collapse in aggregate. Expected-value at T=0.5 is the Pareto point.</span>
+剩余两刀(layerwise 特征、软标签 CE)需重训,留待下轮。
+</p>
+
+<h3>11.4 · 第②刀:layerwise VLM 特征 = run3 再 2.75× / Layerwise features, second breakthrough</h3>
+<p>
+§11.3 的诊断(瓶颈=精度非幅度)把第②刀提到最前:冻结 chat-VLM 的 last hidden 是为 next-token
+调的,空间/视觉细节在中间层。实现=CE head 加 <strong>ELMo 式可学 softmax 混合全部 37 层 hidden</strong>
+(<code>ce_layerwise: true</code>,仅 +37 参数,3.48 it/s 训速不变)。run3 快验(2000 步,同预算):
+</p>
+<table>
+<tr><th>run3 单窗口(模板基线 0.0236)</th><th>MSE64</th><th>bin_acc</th><th>std(GT 0.138)</th></tr>
+<tr><td>CE v1 + argmax</td><td>0.0117</td><td>50.5%</td><td>—</td></tr>
+<tr><td>CE-lw + argmax</td><td class="ok">0.00425(2.75×)</td><td>56.3%</td><td>—</td></tr>
+<tr><td><strong>CE-lw + expected T=0.5</strong></td><td class="ok"><strong>0.00363</strong></td><td>56.0%</td><td class="ok"><strong>0.131(95% GT,jerk 重合)</strong></td></tr>
+</table>
+<p>
+<strong>run3 上已进 GR00T 区间(flow3 锚点全窗 ≤0.004)且幅度恢复到 95% GT</strong>。
+<span class="en">On run3 the layerwise mix alone is another 2.75×, landing inside the GR00T anchor band
+with 95% of GT amplitude.</span>
+</p>
+<p>
+<strong>🔴 但 8 窗口放量(6000 步,同预算)= 负结果,增益不迁移:</strong>
+</p>
+<table>
+<tr><th>8 窗口</th><th>argmax</th><th>expected T=0.5</th><th>bin_acc</th><th>std</th></tr>
+<tr><td><strong>CE v1(保持 live 默认)</strong></td><td class="ok"><strong>0.0174</strong></td><td class="ok"><strong>0.0125</strong></td><td><strong>41.6%</strong></td><td>0.157</td></tr>
+<tr><td>CE-lw</td><td class="x">0.0208</td><td class="x">0.0142</td><td>39.1%</td><td>0.152</td></tr>
+</table>
+<p>
+<strong>教训:run3 单窗口快验测床会系统性高估改动</strong> —— 单窗 10.7 epoch,新增容量优先去记忆;
+lw 逐窗分布佐证(短/简单窗 run_circle 0.0096 / fierce_swings 0.0028 仍占优,dance 长窗全面退步=
+记忆型增益的典型形状)。<strong>裁决:layerwise 不采纳</strong>(ckpt 留档
+<code>sonic_qwen3_5_4b_ce_lw/steps_6000</code>),live 默认维持 CE v1 + expected T=0.5(0.0125)。
+后续快验改用"训 run3 测 held-out 窗"或直接 8 窗口短跑。
+<span class="en">Negative at scale: the run3 single-window testbed systematically overestimates changes
+(capacity goes to memorization at 10.7 epochs). Layerwise rejected; live default stays CE v1 + expected T=0.5.</span>
+</p>
+
 <hr>
 <p class="small">
 关联文档:<a href="groot_sonic_wbc_route.html">架构侧路线总览</a> · <a href="sonic_vla_critique_roadmap.html">三模型联合评审 + P0-P4 roadmap</a> · <a href="sonic_action_sequencing.html">动作串联</a> · <a href="sonic_lafan_expansion.html">LAFAN 扩容</a>。<br>
-头脑风暴:Claude Opus 4.8 + codex gpt-5.5 + mimo-v2.5-pro,各自独立批判同一份 brief 后合并 · 2026-06-09。<strong>本文经 codex gpt-5.5 复审</strong>(18 点 punch-list:FSQ bin/CE 级数、归一化数学、horizon 算力、预训练血缘措辞、+2 盲点 WBC 可行性闸门 / chunk 边界相位,均已采纳;裁决"横向移动·非修复"复审确认不软化)。
+头脑风暴:Claude Opus 4.8 + codex gpt-5.5 + mimo-v2.5-pro,各自独立批判同一份 brief 后合并 · 2026-06-09。<strong>本文经 codex gpt-5.5 复审</strong>(18 点 punch-list:FSQ bin/CE 级数、归一化数学、horizon 算力、预训练血缘措辞、+2 盲点 WBC 可行性闸门 / chunk 边界相位,均已采纳;裁决"横向移动·非修复"复审确认不软化)。<br>
+<strong>2026-06-10 实施前二轮复审(Opus)</strong>:盲点 +4(离线 dump 免 serving / state 46 维与 [-1,1] clip 与 include_state 默认 off / teacher-forcing 口径 / epoch 对齐与 LR 铺满),测床改 LAFAN flow3,新增 §11 本机实施方案。
 </p>
 </div>
 </body>

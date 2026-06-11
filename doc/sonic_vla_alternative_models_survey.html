@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SONIC-VLA 底座替代模型调研 / Alternative Model Survey for the SONIC-VLA Scenario</title>
+<style>
+  :root { color-scheme: light; }
+  body { background:#fff; color:#1a1a2e; font-family:"Noto Sans CJK SC","PingFang SC","Microsoft YaHei",sans-serif;
+         max-width:1100px; margin:0 auto; padding:24px 32px 80px; line-height:1.65; }
+  h1 { font-size:1.7em; border-bottom:3px solid #2563eb; padding-bottom:8px; color:#111827; }
+  h2 { font-size:1.3em; margin-top:2em; color:#1e40af; border-left:5px solid #2563eb; padding-left:10px; }
+  h3 { font-size:1.1em; color:#374151; margin-top:1.5em; }
+  .en { color:#6b7280; font-size:0.85em; font-weight:normal; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:0.88em; background:#fff; color:#1a1a2e; }
+  th { background:#1e40af; color:#fff; padding:7px 9px; text-align:left; }
+  td { border:1px solid #d1d5db; padding:6px 9px; vertical-align:top; background:#fff; color:#1a1a2e; }
+  tr:nth-child(even) td { background:#f3f6fc; }
+  .tldr { background:#eff6ff; border:1px solid #bfdbfe; border-left:6px solid #2563eb; border-radius:6px;
+          padding:14px 18px; margin:18px 0; color:#1a1a2e; }
+  .warn { background:#fef3c7; border:1px solid #fcd34d; border-left:6px solid #f59e0b; border-radius:6px;
+          padding:12px 16px; margin:14px 0; color:#1a1a2e; }
+  .neg  { background:#fee2e2; border:1px solid #fca5a5; border-left:6px solid #dc2626; border-radius:6px;
+          padding:12px 16px; margin:14px 0; color:#1a1a2e; }
+  .good { background:#dcfce7; border:1px solid #86efac; border-left:6px solid #16a34a; border-radius:6px;
+          padding:12px 16px; margin:14px 0; color:#1a1a2e; }
+  code, pre { font-family:"JetBrains Mono","Fira Code",Consolas,monospace; }
+  code { background:#f1f5f9; color:#0f172a; padding:1px 5px; border-radius:4px; font-size:0.9em; }
+  pre { background:#f8fafc; color:#0f172a; border:1px solid #e2e8f0; border-radius:6px; padding:12px 16px;
+        overflow-x:auto; font-size:0.85em; }
+  .rank1 td { background:#dcfce7 !important; }
+  .rank2 td { background:#ecfdf5 !important; }
+  .rank3 td { background:#f0fdf4 !important; }
+  .dead td { background:#fef2f2 !important; color:#7f1d1d; }
+  .src { font-size:0.8em; color:#6b7280; }
+  a { color:#2563eb; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:10px; font-size:0.78em; font-weight:bold; }
+  .b-green { background:#dcfce7; color:#166534; }
+  .b-yellow{ background:#fef3c7; color:#92400e; }
+  .b-red   { background:#fee2e2; color:#991b1b; }
+  svg text { font-family:"Noto Sans CJK SC",sans-serif; }
+</style>
+</head>
+<body>
+
+<h1>SONIC-VLA 底座替代模型调研<br><span class="en">Which open models (besides GR00T) can drive the FSQ-token → SONIC-WBC pipeline?</span></h1>
+
+<p class="src">2026-06-11 · 三方头脑风暴：Claude (Fable 5) + codex (gpt-5.5) + mimo-v2.5-pro，外加两路 web 事实调研（2025–2026 发布、许可证、人形先例逐一核查）。场景与锚点见 <code>sonic_starvla_swap_brainstorm.html</code> §11。</p>
+
+<div class="tldr">
+<b>TL;DR</b> — 三方独立分析高度收敛：<b>这个任务的本质不是「操作臂 VLA」，而是 prompt-conditioned 离散 motion-token 生成</b>（视觉只是弱条件）。因此推荐排序为：<br>
+🥇 <b>现有 StarVLA CE 路线深化</b>（Qwen 系 VLM + 自研离散 head）——三方一致 Top-1；<br>
+🥈 <b>RDT2-VQ</b>（清华，Apache-2.0）——全场<b>唯一原生目标函数就是「CE over 离散动作 token」</b>的大厂级发布，概念完全同构，代价是 7B 在 24G 边缘 + proprio 接口是死代码；<br>
+🥉 <b>小型 masked-transformer 从零搭</b>（MoMask / 1xgpt 模板，50–200M）——对 8 clip 极小数据最稳、4090 最轻松、且 <b>"FSQ token + masked 并行解码 + 人形 WBC" 截至 2026-06 无人发表 = 空白生态位</b>。<br>
+<span class="en">All three reviewers converge: this is discrete motion-token generation, not arm-VLA. Top-3 = ① extend the proven StarVLA-CE route, ② RDT2-VQ (only major release whose native objective is CE over discrete action tokens), ③ a small from-scratch masked transformer — an unoccupied research niche.</span>
+</div>
+
+<h2>0. 场景回顾 + 一个事实核查修正 <span class="en">Scenario &amp; one fact-check fix</span></h2>
+
+<table>
+<tr><th>维度</th><th>值</th></tr>
+<tr><td>任务</td><td><code>(ego 图像 480×640 + prompt + 46 维 proprio) → 40 步 × 78 维</code>，其中 64 维 = SONIC WBC 的 FSQ motion token，14 维 = 左右手关节；VLA 2.5Hz 出 chunk，冻结 WBC 50Hz 解码到 Unitree G1</td></tr>
+<tr><td>数据</td><td>LAFAN flow3：8 窗口 / 5777 帧 / 8 prompt（极小，过拟合而非显存才是约束）</td></tr>
+<tr><td>硬件</td><td>单卡 RTX 4090 24G（冻 VLM + 训 head 模式）</td></tr>
+<tr><td>已有锚点<br>（开环 MSE64）</td><td>GR00T N1.7 (flow DiT head) = <b>0.0026</b>；StarVLA Qwen3.5-4B + 自研 per-dim CE head = <b>0.0125</b>（expected T=0.5 解码）；stock PI_v3 flow head = 0.0374 ≈ 模板塌缩</td></tr>
+<tr><td>用户诉求</td><td>完全开源 + 许可证宽松 + <b>结构可自由魔改</b>（换 loss / 加 history / 改 head）+ 单卡可训，长期迭代底座</td></tr>
+</table>
+
+<div class="warn">
+<b>⚠️ 事实核查修正（调研中抓到，已对照本地源码确认）</b> <span class="en">Fact-check fix verified against local config</span><br>
+SONIC 的 FSQ 真实配置（<code>gear_sonic/config/actor_critic/universal_token/all_mlp_v1.yaml</code>）：
+<code>num_fsq_levels: 32</code> × 32 维 × <code>max_num_tokens: 2</code> → 64 维 flatten，<b>每维 32 级</b>（值域 [-1, 15/16]，1/16 网格）。
+我们 CE head 的 <b>33 bins（k∈[-16,16]）是该网格的覆盖超集，k=+16 是死 bin</b>——无害（softmax 学会不选它），但真实词表是 32 级/维。后续如做 masked 解码，33 = 32 级 + [MASK] 正好是合理 head 宽度。
+</div>
+
+<h2>1. 推荐排序总表 <span class="en">Ranked recommendation table</span></h2>
+
+<table>
+<tr><th>#</th><th>候选 <span class="en">Candidate</span></th><th>架构 / 参数量</th><th>动作输出形式</th><th>许可证</th><th>4090-24G</th><th>改造成本</th><th>预期逼近 0.0026？</th><th>主要风险</th></tr>
+<tr class="rank1"><td><b>1</b></td><td><b>StarVLA CE 路线深化</b><br>Qwen3-VL / Qwen3.5 + 自研离散 head（Qwen-VLA 放权重后可换装，见下方观察表）</td><td>冻结 2–4B VLM + 90M–级可训 head（现成）</td><td>per-dim CE（已验证）→ 下一步 masked 并行 / 加 history</td><td>MIT (StarVLA) + Apache-2.0 (Qwen 系)</td><td>✅ 已跑通（3.5 it/s @14G）</td><td><b>零</b>——就是现状；换 backbone 只改 config</td><td>有机会：差距 6.7× 更可能来自无 history / head 独立逐维不建联合分布，而非 backbone</td><td>继续单打独斗，无社区先验可借</td></tr>
+<tr class="rank2"><td><b>2</b></td><td><b>RDT2-VQ</b>（清华 TSAIL, 2025-09）</td><td>Qwen2.5-VL-7B + RVQ 动作 tokenizer，<b>自回归 CE 预测离散 token</b></td><td>AR 离散 token + CE（<b>目标函数与我们完全同构</b>；可丢 RVQ 直接吐 FSQ 词表）</td><td>Apache-2.0（代码+权重）</td><td>⚠️ 官方 LoRA &gt;32G；冻 VLM+8bit 或可塞进 24G，非官方支持配置</td><td>中：proprio 推理路径是零填充死代码，要自己接 46 维 state</td><td>架构最对题的现成大模型；但 7B × 8 clip 过拟合风险大</td><td>显存边缘 + proprio 死路 + 无人形先例（UMI 双臂夹爪）</td></tr>
+<tr class="rank3"><td><b>3</b></td><td><b>小型 masked-transformer 从零搭</b><br>（MoMask / 1xgpt / MaskGIT-pytorch 模板）</td><td>50–200M，prefix 条件（proprio+prompt embed，可选小图像 encoder）</td><td>MaskGIT 式 <b>10–12 轮迭代去掩码</b>，40×64 网格并行，33=32+MASK head</td><td>MIT (MoMask/MaskGIT-pt) / Apache-2.0 (1xgpt)</td><td>✅ 最轻松，天级训练</td><td>中：从零搭但全是成熟组件；FSQ 词表天然即词表</td><td><b>对 8 clip 数据可能最高</b>：masked 建模联合分布，正好补 per-dim 独立 CE 的短板；且是空白生态位</td><td>无 VLM = 语言泛化弱；若后续要强视觉闭环则吃亏</td></tr>
+<tr><td>4</td><td><b>SmolVLA + CE head 手术</b>（HF LeRobot）</td><td>SmolVLM-2 ~450M + 换掉 flow expert</td><td>原生 flow → 换 per-dim CE（~150-200 行）</td><td>Apache-2.0</td><td>✅ 全量训都行</td><td>低：LeRobot 模块化最好、G1 接口现成</td><td>难：135M 文本骨干表达力远弱于 4B；预期 0.005–0.01 量级</td><td>容量瓶颈；stock flow head 必复现模板塌缩，必须换 CE</td></tr>
+<tr><td>5</td><td><b>FRoM-W1</b>（OpenMOSS/复旦, 2026）</td><td>Llama-3.1-8B + LoRA → 离散 VQ 全身 token → RL tracker → <b>真机 G1/H1</b></td><td>AR 离散 motion token（自有 VQ + tracker）</td><td>Apache-2.0（代码+权重+数据集）</td><td>⚠️ 8B = LoRA only</td><td>高：要把它的 token 词表换成 SONIC FSQ</td><td>是<b>唯一全开源的结构同构系统</b>，配方移植价值 &gt; 直接用</td><td>单一信源未独立核实；8B × 8 clip 过拟合</td></tr>
+<tr><td>6</td><td><b>MiniVLA</b>（Stanford ILIAD）</td><td>Qwen2.5-0.5B + OpenVLA ViT ≈1B</td><td>VQ-BeT 式 RVQ chunk token，<b>塞进 Qwen 空闲 embedding 槽位</b>（免 resize）</td><td>MIT</td><td>✅ 全量训轻松</td><td>低-中：proprio 要补</td><td>难超 0.0125（0.5B LLM 弱于现有 4B）；当廉价对照臂</td><td>容量小、社区小</td></tr>
+<tr><td>7</td><td><b>π0-FAST / openpi</b>（Physical Intelligence）</td><td>PaliGemma-3B + FAST (DCT+BPE) tokenizer</td><td>AR 离散 token；<b>openpi 里已有 <code>FSQTokenizer</code> 类</b>（鸭子类型可换装）</td><td>Apache-2.0 + Gemma 条款</td><td>⚠️ LoRA &gt;22.5G 边缘；<b>离散变体 JAX-only</b></td><td>高：JAX + 双栈</td><td>不确定；π0.5 PyTorch 负面经验在前</td><td>JAX 离散变体 + 显存边缘 + Gemma 许可证</td></tr>
+<tr><td>8</td><td><b>Motion-token 语言模型改造</b><br>T2M-GPT / MotionGPT / MotionMillion</td><td>100M–770M（T2M-GPT 从零 GPT 最干净）</td><td>VQ/FSQ 词表 AR；要换成 64 维因子化 head（MusicGen 套路）</td><td>Apache-2.0 / MIT / Apache-2.0</td><td>✅</td><td>中-高：<b>全都没有图像/proprio 输入</b>，要自己加 prefix encoder</td><td>路线对题，但加完条件 encoder ≈ 等价于 #3 从零搭——#3 更直接</td><td>无机器人控制先例；MotionMillion 是 flat token 与因子化不匹配</td></tr>
+<tr><td>9</td><td><b>OpenVLA-OFT</b></td><td>Prismatic 7B</td><td>OFT = <b>单次前向并行解码整 chunk</b>（离散变体验证过 90.2% LIBERO）</td><td>MIT</td><td>⚠️ 7B LoRA 勉强</td><td>高</td><td>当<b>配方捐赠者</b>：并行解码 trick 我们 CE head 已天然在用</td><td>7B × 8 clip = 灾难（mimo 语）；manipulation prior</td></tr>
+<tr><td>10</td><td><b>RDT-1B / RDT2-FM / Octo / CogACT / SpatialVLA</b></td><td>0.1–1B 级</td><td>diffusion / flow 连续</td><td>MIT / Apache</td><td>✅~⚠️</td><td>中-高</td><td>与「离散 FSQ → CE &gt; flow」的核心实证冲突，改完 head 不如 #1</td><td>错误的 inductive bias；Octo 还是 JAX</td></tr>
+</table>
+
+<h3>不可用 / 仅观察 <span class="en">Blocked or watch-only</span></h3>
+<table>
+<tr><th>候选</th><th>状态</th><th>原因</th></tr>
+<tr class="dead"><td>GR00T N2（NVIDIA）</td><td>👀 观察</td><td>GTC 2026 预告「世界-动作模型、人形优先、30+ DoF 全身」，<b>2026 底才发布</b>——等它不如先迭代</td></tr>
+<tr class="dead"><td>Qwen-VLA（阿里, 2026-05-29 论文）</td><td>👀 观察（<b>权重未放</b>）</td><td>Qwen3.5-4B + 1.15B DiT action expert，97.9% LIBERO；<b>2026-06-11 核查：GitHub repo 只有论文/blog/benchmark，无 checkpoint、无 license 段；HF Qwen org 与 ModelScope 均无官方权重</b>。放权重后是 StarVLA 路线最佳 backbone 升级件（flow head 丢弃）</td></tr>
+<tr class="dead"><td>WholeBodyVLA（OpenDriveLab, ICLR 2026）/ LangWBC / Humanoid-VLA / Humanoid-LLA / Being-0 / MGP</td><td>❌ 无代码</td><td>论文/占位仓库，README 明说无开源时间线；方向高度相关，只能当方法参考</td></tr>
+<tr class="dead"><td>UH-1/Humanoid-X、ScaMo、NORA、Wall-X/Wall-OSS</td><td>❌ 许可证缺失</td><td>仓库<b>无 LICENSE 文件</b>（API 核实）；该领域 license 卫生极差，约半数仓库 README 声称开源但法律上不可派生</td></tr>
+<tr class="dead"><td>AgiBot GO-1、Unitree UnifoLM、KungfuBot(PBHC)、MMM/BAMM</td><td>❌ NC 许可</td><td>CC-BY-NC 系，违反宽松许可要求</td></tr>
+<tr class="dead"><td>GR-3（字节）/ Gemini Robotics</td><td>❌ 闭源</td><td>技术报告 only / trusted-tester only</td></tr>
+<tr class="dead"><td>HumanPlus / ExBody2 / OmniH2O / HOVER / TWIST</td><td>❌ 层错位</td><td>这些是 <b>tracker 层</b>（与冻结 SONIC 竞争），不是出 token 的「大脑」层</td></tr>
+</table>
+
+<h2>2. 三方意见对比 <span class="en">Three-way opinion matrix</span></h2>
+
+<table>
+<tr><th></th><th>codex (gpt-5.5)</th><th>mimo-v2.5-pro</th><th>web 事实调研（两路 agent）</th></tr>
+<tr><td><b>Top-1</b></td><td>Qwen3-VL 4B/8B + 自研 FSQ CE head</td><td>Qwen2.5-VL-1.5B + per-dim CE head（DIY）</td><td>StarVLA CE 路线已是「领域配方」；Qwen-VLA 论文方向印证（但权重未放，见观察表）</td></tr>
+<tr><td><b>Top-2</b></td><td>LeRobot/SmolVLA 换 CE head</td><td>SmolVLA 换 CE head</td><td>RDT2-VQ（唯一原生 CE-over-token 的大发布）</td></tr>
+<tr><td><b>Top-3</b></td><td>Motion-token LM（T2M-GPT/MoMask/MotionGPT）</td><td>π0-FAST LoRA</td><td>小型 masked transformer（MoMask/1xgpt 模板）= 空白生态位</td></tr>
+<tr><td><b>独有洞察</b></td><td>「下一版不是换更大 VLM，而是加 history + horizon query + temporal 先验」；diffusion 系 inductive bias 与 FSQ CE 实证冲突</td><td>「数据极小 → 大模型必过拟合，小模型缺表达 → 1.5–2B 甜点」；决策树 + 3 天 MVP 伪码</td><td>2560 AR token 闭环不可行（30–60s/chunk）→ 必须并行/masked；FSQ 32 级事实核查；license 卫生普查；FRoM-W1/TextOp/Qwen-VLA/GR00T-N2 等 2026 新事实</td></tr>
+<tr><td><b>一致点</b></td><td colspan="3">① 任务本质 = 离散 motion-token 生成，不是操作臂 VLA；② CE/离散 head 是已被我们实证的正确形式，凡 stock flow/diffusion head 都要换；③ 自由魔改诉求下「自己控制 head 的 PyTorch 路线」优于任何重框架；④ motion-token LM 路线对题但缺图像/proprio 输入，加完条件 ≈ 从零搭</td></tr>
+</table>
+
+<h2>3. 三条路线图 <span class="en">Three routes</span></h2>
+
+<svg viewBox="0 0 1040 430" xmlns="http://www.w3.org/2000/svg" style="background:#fff; border:1px solid #e5e7eb; border-radius:8px; width:100%; height:auto;">
+  <rect x="0" y="0" width="1040" height="430" fill="#ffffff"/>
+  <text x="520" y="28" text-anchor="middle" font-size="17" font-weight="bold" fill="#111827">三条可行路线（共享同一 FSQ 词表与 SONIC WBC 底座）</text>
+
+  <!-- shared inputs -->
+  <rect x="30" y="60" width="150" height="86" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="105" y="84" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e40af">输入</text>
+  <text x="105" y="104" text-anchor="middle" font-size="11" fill="#1a1a2e">prompt + ego 图</text>
+  <text x="105" y="121" text-anchor="middle" font-size="11" fill="#1a1a2e">+ 46 维 proprio</text>
+  <text x="105" y="138" text-anchor="middle" font-size="11" fill="#6b7280">(+ 建议补 history)</text>
+
+  <!-- Route A -->
+  <rect x="240" y="58" width="330" height="92" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+  <text x="405" y="80" text-anchor="middle" font-size="13" font-weight="bold" fill="#166534">路线 A（主线）：VLM + 自研离散 head</text>
+  <text x="405" y="100" text-anchor="middle" font-size="11" fill="#1a1a2e">冻结 Qwen3.5/Qwen-VLA 2–4B → CE head（现状 0.0125）</text>
+  <text x="405" y="117" text-anchor="middle" font-size="11" fill="#1a1a2e">下一刀：history / masked 并行 head / 时间先验</text>
+  <text x="405" y="137" text-anchor="middle" font-size="10.5" fill="#6b7280">借鉴：RDT2-VQ 目标函数 · OFT 并行解码 · openpi FSQTokenizer</text>
+
+  <!-- Route B -->
+  <rect x="240" y="168" width="330" height="92" rx="8" fill="#fefce8" stroke="#ca8a04" stroke-width="2"/>
+  <text x="405" y="190" text-anchor="middle" font-size="13" font-weight="bold" fill="#854d0e">路线 B（并行实验线）：小 masked-transformer</text>
+  <text x="405" y="210" text-anchor="middle" font-size="11" fill="#1a1a2e">50–200M 从零搭（MoMask/1xgpt 模板），无 VLM</text>
+  <text x="405" y="227" text-anchor="middle" font-size="11" fill="#1a1a2e">40×64 网格 10–12 轮迭代去掩码，建联合分布</text>
+  <text x="405" y="247" text-anchor="middle" font-size="10.5" fill="#6b7280">空白生态位：FSQ+masked+WBC 无人发表（2026-06）</text>
+
+  <!-- Route C -->
+  <rect x="240" y="278" width="330" height="92" rx="8" fill="#f3f4f6" stroke="#6b7280" stroke-width="2"/>
+  <text x="405" y="300" text-anchor="middle" font-size="13" font-weight="bold" fill="#374151">路线 C（对照/借力）：现成框架改 head</text>
+  <text x="405" y="320" text-anchor="middle" font-size="11" fill="#1a1a2e">SmolVLA(450M) / MiniVLA(1B) 换 CE head 当对照臂</text>
+  <text x="405" y="337" text-anchor="middle" font-size="11" fill="#1a1a2e">RDT2-VQ 若 8bit 能塞 24G 可直接试同构目标</text>
+  <text x="405" y="357" text-anchor="middle" font-size="10.5" fill="#6b7280">FRoM-W1 = 配方移植源（LLM→token→tracker→真机 G1）</text>
+
+  <!-- token grid -->
+  <rect x="640" y="148" width="180" height="110" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <text x="730" y="172" text-anchor="middle" font-size="13" font-weight="bold" fill="#5b21b6">FSQ token chunk</text>
+  <text x="730" y="192" text-anchor="middle" font-size="11" fill="#1a1a2e">40 步 × 64 维</text>
+  <text x="730" y="209" text-anchor="middle" font-size="11" fill="#1a1a2e">每维 32 级 (1/16 网格)</text>
+  <text x="730" y="226" text-anchor="middle" font-size="11" fill="#1a1a2e">+14 维手部</text>
+  <text x="730" y="246" text-anchor="middle" font-size="10.5" fill="#dc2626">⚠ 2560 个 AR token 闭环不可行</text>
+
+  <!-- WBC -->
+  <rect x="870" y="148" width="140" height="110" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+  <text x="940" y="176" text-anchor="middle" font-size="13" font-weight="bold" fill="#991b1b">冻结 SONIC WBC</text>
+  <text x="940" y="196" text-anchor="middle" font-size="11" fill="#1a1a2e">50Hz 解码</text>
+  <text x="940" y="213" text-anchor="middle" font-size="11" fill="#1a1a2e">RL 平衡底座</text>
+  <text x="940" y="233" text-anchor="middle" font-size="11" fill="#1a1a2e">→ Unitree G1</text>
+
+  <!-- arrows -->
+  <defs><marker id="arr" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+    <polygon points="0 0, 8 3.5, 0 7" fill="#374151"/></marker></defs>
+  <line x1="180" y1="103" x2="236" y2="103" stroke="#374151" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="180" y1="115" x2="236" y2="210" stroke="#374151" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="180" y1="128" x2="236" y2="318" stroke="#374151" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="570" y1="104" x2="636" y2="185" stroke="#374151" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="570" y1="214" x2="636" y2="206" stroke="#374151" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="570" y1="322" x2="636" y2="230" stroke="#374151" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="820" y1="203" x2="866" y2="203" stroke="#374151" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <text x="520" y="408" text-anchor="middle" font-size="11.5" fill="#6b7280">锚点：GR00T N1.7 flow head = 0.0026（连续回归赢了离散网格——靠 DiT 容量硬学；理论上离散 head 形式更对，差距在 head 设计而非 backbone）</text>
+</svg>
+
+<h2>4. 关键洞察 <span class="en">Key insights</span></h2>
+
+<h3>4.1 任务本质重定位 <span class="en">Reframing the task</span></h3>
+<p>codex 一针见血：这不是「操作臂 VLA 选型」，是 <code>prompt + proprio/history → 离散 motion-code 序列生成</code>，视觉只是弱条件（ego 相机看地面）。所以「找更好的 VLA」是错误提问；正确提问是「找/搭最好的<b>条件化离散序列生成器</b>」。这解释了为什么所有 stock flow/diffusion head 都塌成模板，也解释了 motion-token LM 路线为什么对题。</p>
+
+<h3>4.2 2560-token 问题（工程红线）<span class="en">The 2560-token wall</span></h3>
+<p>64 token/步 × 40 步 = 2560 个离散 token。π0-FAST 在 4090 上解码 30–60 个 AR token 要 ~750ms → 逐 token 自回归整 chunk 要 30–60 秒，闭环 2.5Hz 直接不可行。可行解三种，<b>我们现有 CE head 已经天然是第①种</b>：</p>
+<table>
+<tr><th>解法</th><th>机制</th><th>先例</th><th>我们的状态</th></tr>
+<tr><td>① 单次并行 per-position head</td><td>一次前向吐全部 40×78 logits</td><td>OpenVLA-OFT（离散变体 90.2% LIBERO）</td><td>✅ 现状即此——但逐维独立，不建联合分布</td></tr>
+<tr><td>② MaskGIT 迭代去掩码</td><td>10–12 轮置信度重掩码，<b>轮数与网格大小无关</b></td><td>MoMask（动作域）、1xgpt（机器人 token 网格）、Discrete Diffusion VLA</td><td>🎯 最有希望的下一刀：给 head 加上维间/时间联合建模</td></tr>
+<tr><td>③ BPE 压缩 token 流</td><td>FAST <code>.fit()</code> API 在自己数据上训压缩器</td><td>π0-FAST（Apache-2.0 独立组件）</td><td>备选；SONIC token 本身已是压缩表示，收益存疑</td></tr>
+</table>
+
+<h3>4.3 空白生态位 <span class="en">The unoccupied niche</span></h3>
+<div class="good">
+领域已收敛到「语言 → <b>连续</b> latent → RL tracker」（GR00T 回归 FSQ、LeVERB 用 CVAE latent、Kimodo 绕开 token、FRoM-W1 用自有 VQ）。<b>「对 SONIC 的 64×32 FSQ 网格做 AR/masked 离散建模」截至 2026-06-11 没有任何发表</b>（三个调研线程交叉确认）。我们的 CE 路线 + 下一步 masked 解码正踩在这个空位上——做出来即是可发表的差异化。
+</div>
+
+<h3>4.4 容量甜点与过拟合 <span class="en">Capacity sweet spot</span></h3>
+<p>mimo 的核心矛盾表述准确：8 prompt / 5777 帧 ≈ 37 万因子化 token——7B（RDT2-VQ/OpenVLA/FRoM-W1）必过拟合，135M 文本骨干（SmolVLA）又欠表达。甜点在 <b>1.5–4B 冻结 VLM + 90M–200M 可训 head</b>（现状）或 <b>50–200M 从零小模型</b>（路线 B）。约束是过拟合而非显存。</p>
+
+<h3>4.5 license 卫生普查 <span class="en">License hygiene</span></h3>
+<p>人形/动作生成领域 license 卫生极差：被核查的 16 个 motion 仓库里 8 个无 LICENSE 文件（UH-1、ScaMo、NORA、Wall-X 等 README 声称开源但法律上不可派生）。<b>干净清单</b>：StarVLA (MIT)、LeRobot/openpi/FAST/RDT2/T2M-GPT/1xgpt/MotionMillion/FRoM-W1 (Apache-2.0)、MoMask/MiniVLA/OpenVLA-OFT/MaskGIT-pytorch/TextOp (MIT)、GR00T (Apache-2.0 / NVIDIA Open Model License)。</p>
+
+<h2>5. 行动建议 <span class="en">Recommended actions</span></h2>
+
+<table>
+<tr><th>优先级</th><th>动作</th><th>预期</th></tr>
+<tr><td><b>P0</b></td><td><b>路线 A 下一刀：CE head 升级为 masked 并行解码</b>（33 = 32 级 + MASK 正好就位）+ 补 history。改的还是 <code>QwenPI_CE.py</code> 一处，接线/评测/注入全复用。验证用 8 窗口短跑（run3 单窗测床已证会高估）。</td><td>补上「逐维独立不建联合分布」的短板，冲 0.0026 区间</td></tr>
+<tr><td><b>P1</b></td><td><b>路线 B 并行实验</b>：MoMask/1xgpt 模板搭 50–200M masked transformer，纯 (prompt, proprio, history) 条件，不带 VLM。天级训练，4090 轻松。</td><td>对 8 clip 数据可能直接最优 + 空白生态位发表点</td></tr>
+<tr><td><b>P2</b></td><td>backbone 换装实验：等 <b>Qwen-VLA</b> 官方放权重后换装（机器人预训练同家族，只改 config）；在那之前 Qwen3-VL-4B/8B 仍是现役最佳。</td><td>低成本 A/B（只改 config；<b>当前被权重未放阻塞</b>）</td></tr>
+<tr><td><b>P3</b></td><td>RDT2-VQ 可行性 spike：冻 VLM + 8bit 能否塞 24G；能则跑同数据同预算 A/B。</td><td>同构目标函数的现成大模型对照</td></tr>
+<tr><td>观察</td><td>GR00T N2（2026 底）、WholeBodyVLA / Humanoid-LLA / MGP 放码、FRoM-W1 独立核实</td><td>—</td></tr>
+</table>
+
+<div class="warn">
+<b>统一告诫（三方共识 + 自家实证）</b>：任何候选的 stock flow/diffusion head 都会复现 PI_v3 的模板塌缩（0.0374）——<b>换离散 head 是前置条件，不是可选项</b>。同时 codex 提醒：当前 0.0125 → 0.0026 的差距更可能来自「无 history、head 太浅、逐维独立」而非 backbone 大小——别把预算花在换更大 VLM 上。
+</div>
+
+<p class="src">来源：codex 报告 <code>/tmp/codex_sonic_survey.md</code> · mimo 报告 <code>/tmp/mimo_sonic_survey.md</code> · web 调研引用（节选）：
+<a href="https://github.com/thu-ml/RDT2">RDT2</a> ·
+<a href="https://huggingface.co/robotics-diffusion-transformer/RDT2-VQ">RDT2-VQ</a> ·
+<a href="https://github.com/QwenLM/Qwen-VLA">Qwen-VLA</a> ·
+<a href="https://github.com/OpenMOSS/FRoM-W1">FRoM-W1</a> ·
+<a href="https://github.com/Stanford-ILIAD/openvla-mini">MiniVLA</a> ·
+<a href="https://github.com/EricGuo5513/momask-codes">MoMask</a> ·
+<a href="https://github.com/1x-technologies/1xgpt">1xgpt</a> ·
+<a href="https://github.com/Mael-zys/T2M-GPT">T2M-GPT</a> ·
+<a href="https://github.com/moojink/openvla-oft">OpenVLA-OFT</a> ·
+<a href="https://github.com/Physical-Intelligence/openpi">openpi</a> ·
+<a href="https://github.com/huggingface/lerobot">LeRobot</a> ·
+<a href="https://github.com/OpenDriveLab/WholebodyVLA">WholeBodyVLA</a> ·
+<a href="https://huggingface.co/blog/nvidia/gr00t-n1-7">GR00T N1.7</a> ·
+<a href="https://github.com/TeleHuman/TextOp">TextOp</a>。
+本仓相关：<code>sonic_starvla_swap_brainstorm.html</code> §11（CE 突破 + 解码扫描 + layerwise 负结果）。</p>
+
+</body>
+</html>

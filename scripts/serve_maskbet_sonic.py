@@ -49,9 +49,17 @@ class SonicMaskBeTPolicy:
         from maskbet.model import MaskBeT
         self.torch = torch
         self.cfg = MaskBeTConfig()
-        self.model = MaskBeT(self.cfg).cuda().eval()
+        # infer n_prompts from the ckpt's prompt-embedding table (mix-train uses 10 = 8 flow3 + 2
+        # P3; lookup-mode text_in.weight is (n_prompts, d)). Otherwise load_state_dict shape-mismatches.
         blob = torch.load(os.path.abspath(ckpt), map_location="cuda")
-        self.model.load_state_dict(blob["model"])
+        sd = blob["model"]
+        if "text_in.weight" in sd and sd["text_in.weight"].dim() == 2:
+            ckpt_n = int(sd["text_in.weight"].shape[0])
+            if ckpt_n != self.cfg.n_prompts:
+                print(f"[serve] ckpt n_prompts={ckpt_n} (cfg default {self.cfg.n_prompts}) -> rebuild", flush=True)
+                self.cfg.n_prompts = ckpt_n
+        self.model = MaskBeT(self.cfg).cuda().eval()
+        self.model.load_state_dict(sd)
         self.norm = MinMax(stats_json)
         self.decode = decode
         self.temp = temp

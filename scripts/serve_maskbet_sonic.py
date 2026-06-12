@@ -46,25 +46,41 @@ class SonicMaskBeTPolicy:
         sys.path.insert(0, MASKBET_DIR)
         import torch
         from maskbet.config import MaskBeTConfig
-        from maskbet.model import MaskBeT
+        from maskbet.model import build_model, cfg_from_blob
         self.torch = torch
         self.cfg = MaskBeTConfig()
-        # infer n_prompts from the ckpt's prompt-embedding table (mix-train uses 10 = 8 flow3 + 2
-        # P3; lookup-mode text_in.weight is (n_prompts, d)). Otherwise load_state_dict shape-mismatches.
         blob = torch.load(os.path.abspath(ckpt), map_location="cuda")
         sd = blob["model"]
-        if "text_in.weight" in sd and sd["text_in.weight"].dim() == 2:
+        # ckpt's own cfg is authoritative (head=ce|flow, n_prompts, flow_steps); pre-cfg ckpts
+        # (p3_matrix and earlier) lack it -> fall back to inferring n_prompts from the prompt table.
+        self.cfg = cfg_from_blob(blob, self.cfg)
+        if not blob.get("cfg") and "text_in.weight" in sd and sd["text_in.weight"].dim() == 2:
             ckpt_n = int(sd["text_in.weight"].shape[0])
             if ckpt_n != self.cfg.n_prompts:
                 print(f"[serve] ckpt n_prompts={ckpt_n} (cfg default {self.cfg.n_prompts}) -> rebuild", flush=True)
                 self.cfg.n_prompts = ckpt_n
-        self.model = MaskBeT(self.cfg).cuda().eval()
+        if self.cfg.head == "flow" and decode == "argmax":
+            decode = "flow"                         # flow ckpt: sampler decode (off-grid -> snapped)
+        self.model = build_model(self.cfg).cuda().eval()
         self.model.load_state_dict(sd)
+        print(f"[serve] head={self.cfg.head} n_prompts={self.cfg.n_prompts} decode={decode}", flush=True)
         self.norm = MinMax(stats_json)
         self.decode = decode
         self.temp = temp
         self.K = self.cfg.state_history
         self._state_buf: list = []
+        # deterministic flow: SONIC_MASKBET_FLOW_SEED set -> reuse one fixed noise x0 every call,
+        # so the flow output is a deterministic function of state. This removes the per-chunk
+        # resampling jitter that makes a naive stochastic flow policy temporally incoherent in
+        # closed loop (consecutive independent samples destabilize the WBC). Amplitude is kept
+        # (still a full sample, just a fixed one); coherence comes from the velocity field being
+        # continuous in the evolving state. Unset = stochastic (fresh noise per call).
+        seed_env = os.environ.get("SONIC_MASKBET_FLOW_SEED")
+        self._flow_gen = None
+        self._flow_seed = int(seed_env) if seed_env not in (None, "") else None
+        if self._flow_seed is not None and self.cfg.head == "flow":
+            self._flow_gen = self.torch.Generator(device="cuda")
+            print(f"[serve] deterministic flow: fixed noise seed={self._flow_seed}", flush=True)
 
         # prompt string -> task_index (the 8 LAFAN flow3 prompts)
         self.prompt2id = {}
@@ -105,10 +121,16 @@ class SonicMaskBeTPolicy:
             "prompt": torch.tensor([pid], dtype=torch.long, device="cuda"),
             "state": torch.from_numpy(hist[None].astype(np.float32)).cuda(),  # (1,K,46)
         }
+        gen = None
+        if self._flow_gen is not None:                         # re-seed -> identical x0 each call
+            gen = self._flow_gen.manual_seed(self._flow_seed)
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
-            act = self.model.predict(cond, mode=self.decode, temp=self.temp)  # (1,40,78)
+            if gen is not None:
+                act = self.model.predict(cond, mode=self.decode, temp=self.temp, generator=gen)
+            else:
+                act = self.model.predict(cond, mode=self.decode, temp=self.temp)  # (1,40,78)
         act = act.float().cpu().numpy()
-        if self.decode == "expected":                          # off-grid -> snap to k/16
+        if self.decode in ("expected", "flow"):                # off-grid -> snap to k/16
             act = np.round(act * self.cfg.grid) / self.cfg.grid
         return {"action.motion_token": act[:, :, :64].astype(np.float32)}     # (1,40,64)
 
@@ -122,7 +144,7 @@ def main() -> int:
         REPO_ROOT, "datasets/sonic_vla_lerobot_flow3/meta/tasks.jsonl"))
     ap.add_argument("--port", type=int, default=5557)
     ap.add_argument("--decode", default=os.environ.get("SONIC_MASKBET_DECODE", "argmax"),
-                    choices=["argmax", "sample", "expected"])
+                    choices=["argmax", "sample", "expected", "flow"])
     ap.add_argument("--temp", type=float, default=float(os.environ.get("SONIC_MASKBET_TEMP", 1.0)))
     args = ap.parse_args()
 

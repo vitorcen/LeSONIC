@@ -4,9 +4,9 @@
 # as the GR00T / StarVLA live demos (gear_sonic_sequence.sh + vla_live_injector) — the server
 # just speaks the same ZMQ wire on its own port.
 #
-#   bash scripts/maskbet_sonic_live_demo.sh @flow3       # fight/run/dance loop, MaskBeT 25M
+#   bash scripts/maskbet_sonic_live_demo.sh @flow3       # fight/run/dance loop, MaskBeT 25M (flow head)
 #   bash scripts/maskbet_sonic_live_demo.sh combat,circle
-#   SONIC_MASKBET_DECODE=expected bash scripts/maskbet_sonic_live_demo.sh @flow3
+#   MASKBET_CKPT=.../flow3/ckpt_006000.pt bash scripts/maskbet_sonic_live_demo.sh @flow3   # old CE head
 # Server is left running for the next flow; stop with: pkill -f serve_maskbet_sonic
 set -uo pipefail
 
@@ -15,16 +15,23 @@ PORT="${MASKBET_PORT:-5557}"
 # base env zmq is broken (PYZMQ_DRAFT_API); the starvla_eval env has zmq+torch and loads the
 # pure-torch MaskBeT state_dict fine.
 ENV_BIN="${ENV_BIN:-$HOME/miniconda3/envs/starvla_eval_qwen35/bin}"
-CKPT="${MASKBET_CKPT:-$REPO_ROOT/MaskBeT/outputs/flow3/ckpt_006000.pt}"
+# DEFAULT = the ⑦ flow head (best seed): it actually executes fight/dance closed-loop amplitude
+# (the old CE head under-executed them ~half). serve auto-detects head=flow from the ckpt cfg and
+# uses the flow sampler decode. Override MASKBET_CKPT to play the old CE ckpt.
+CKPT="${MASKBET_CKPT:-$REPO_ROOT/MaskBeT/outputs/flow_ab/flow_s2/ckpt_011500.pt}"
 SERVER_LOG="${SERVER_LOG:-/tmp/maskbet_sonic_server.log}"
 SEQ="${1:-@flow3}"
 
 [[ "$SEQ" == "list" ]] && exec bash "$REPO_ROOT/scripts/gear_sonic_sequence.sh" list
 
-# Decode: argmax is constructively on-grid (closed-loop default, snap is a no-op). expected
-# is lower open-loop MSE (0.0090 vs 0.0193) but off-grid → the server snaps it back.
+# Decode default argmax: for a CE ckpt it is on-grid (snap no-op); for a FLOW ckpt serve
+# auto-switches argmax->flow (the sampler). The flow DEPLOYABLE config = deterministic noise
+# (SONIC_MASKBET_FLOW_SEED) + temp=0.6 — the config that gave 0/8 closed-loop falls AND recovered
+# fight/dance amplitude (naive stochastic temp=1.0 flow topples 5/8; see plan ⑦ box). Both vars are
+# ignored by the CE head, so they are safe as global defaults.
 export SONIC_MASKBET_DECODE="${SONIC_MASKBET_DECODE:-argmax}"
-export SONIC_MASKBET_TEMP="${SONIC_MASKBET_TEMP:-1.0}"
+export SONIC_MASKBET_TEMP="${SONIC_MASKBET_TEMP:-0.6}"
+export SONIC_MASKBET_FLOW_SEED="${SONIC_MASKBET_FLOW_SEED:-0}"
 
 # 1) ensure the MaskBeT server is up on $PORT (idempotent)
 if ps -eo cmd | grep -q "[s]erve_maskbet_sonic.py.*--port $PORT"; then

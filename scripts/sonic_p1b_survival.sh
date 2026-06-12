@@ -53,7 +53,7 @@ SUMMARY="$OUT_ROOT/survival_summary.csv"
 echo "segment,prompt_idx,openloop_mse,round,fell,fall_step,window_steps,survival_frac,min_root_z,max_tilt" > "$SUMMARY"
 
 # 1) bring up MaskBeT server (decode=expected+snap), GPF-retry — reuse demo's robust launcher path
-export SONIC_MASKBET_DECODE="$DECODE" SONIC_MASKBET_TEMP=1.0
+export SONIC_MASKBET_DECODE="$DECODE" SONIC_MASKBET_TEMP="${SONIC_MASKBET_TEMP:-1.0}"
 start_server() {
   ps -eo cmd | grep -q "[s]erve_maskbet_sonic.py.*--port $PORT" && return 0
   for a in 1 2 3 4 5 6; do

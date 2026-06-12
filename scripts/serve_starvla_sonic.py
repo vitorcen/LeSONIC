@@ -31,7 +31,8 @@ import numpy as np
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 STARVLA_DIR = os.environ.get("STARVLA_DIR",
-                             os.path.join(REPO_ROOT, "..", "dependencies", "starVLA"))
+                             os.path.join(REPO_ROOT, "dependencies", "starVLA"))
+# QwenPI_CE head ships in the vitorcen/StarVLA fork checkout (no runtime deploy).
 
 # training state key order (data_config.UnitreeG1SonicConfig.state_keys)
 _STATE_GROUPS = ["left_leg", "right_leg", "waist", "left_arm", "right_arm",

@@ -98,12 +98,13 @@ LeSONIC/
 ├─ MaskBeT/                        # 路线 B submodule (vitorcen/MaskBeT)——从零 25M masked transformer
 ├─ dependencies/                   # 自包含 submodule（clone 用 --recursive）
 │   ├─ Isaac-GR00T/               # 嵌套 submodule (NVIDIA/Isaac-GR00T, N1.7)——LeSONIC 自有副本，与父 PickOrange 互不干扰
-│   └─ GR00T-WholeBodyControl/    # 嵌套 submodule (NVlabs)，GEAR-SONIC WBC（SONIC 专属）
+│   ├─ GR00T-WholeBodyControl/    # 嵌套 submodule (NVlabs)，GEAR-SONIC WBC（SONIC 专属）
+│   └─ starVLA/                   # 嵌套 submodule (vitorcen/StarVLA fork, 分支 main)——A/B+P0 引擎；patch 已打进 fork
 ├─ datasets/  (gitignored runtime) # sonic_vla_{raw,lerobot,pred_8k_final}
 └─ outputs/   (gitignored runtime) # gr00t_sonic_8k（ckpt）
 ```
 
-> **自包含**：LeSONIC 自带 `dependencies/{Isaac-GR00T,GR00T-WholeBodyControl}` 两个嵌套 submodule —— **与父 `isaaclab-experience` 的 Isaac-GR00T 完全独立**（各自 checkout + `.venv`，分权好维护）。脚本经 `$REPO_ROOT`（=LeSONIC 根，`scripts/..`）自解析,所有依赖/数据/产物都在 LeSONIC 内。
+> **自包含**：LeSONIC 自带 `dependencies/{Isaac-GR00T,GR00T-WholeBodyControl,starVLA}` 三个嵌套 submodule —— **与父 `isaaclab-experience` 完全独立**（各自 checkout + `.venv`，分权好维护）。starVLA 指向 [`vitorcen/StarVLA`](https://github.com/vitorcen/StarVLA) fork 的 `starVLA_dev` 分支，本地改动（含 SONIC 专属 `QwenPI_CE` head + proprio-history）已作为 commit 打进 fork，`--recursive` clone 即得，**无需 apply patch**；后续维护准则见 fork 内 `CLAUDE.md`。脚本经 `$REPO_ROOT`（=LeSONIC 根，`scripts/..`）自解析,所有依赖/数据/产物都在 LeSONIC 内。
 > clone：`git clone --recursive git@github.com:vitorcen/LeSONIC.git`（或 `git submodule update --init --recursive`）。`.venv` 不入 git，每个 submodule 各建（GR00T 训练栈 torch2.7.1+cu128；WBC 走 isaaclab + `.venv_data_collection`）。
 
 ## 快速上手 / Quickstart

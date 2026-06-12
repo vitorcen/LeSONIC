@@ -7,3 +7,7 @@
 [submodule "MaskBeT"]
 	path = MaskBeT
 	url = git@github.com:vitorcen/MaskBeT.git
+[submodule "dependencies/starVLA"]
+	path = dependencies/starVLA
+	url = git@github.com:vitorcen/StarVLA.git
+	branch = starVLA_dev

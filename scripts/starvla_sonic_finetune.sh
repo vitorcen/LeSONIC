@@ -14,8 +14,8 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# starVLA engine lives in the umbrella repo (shared with PickOrange), not in LeSONIC.
-STARVLA_DIR="${STARVLA_DIR:-$REPO_ROOT/../dependencies/starVLA}"
+# starVLA engine: LeSONIC-nested submodule = vitorcen/StarVLA fork (branch starVLA_dev), self-contained.
+STARVLA_DIR="${STARVLA_DIR:-$REPO_ROOT/dependencies/starVLA}"
 ENV_BIN="${ENV_BIN:-$HOME/miniconda3/envs/starvla_eval_qwen35/bin}"
 CONFIG_SRC="${CONFIG:-$REPO_ROOT/scripts/starvla/configs/sonic_qwen3_5_4b_pi_v3.yaml}"
 CONFIG_SRC="$(readlink -f "$CONFIG_SRC")"   # absolutize: trainer launches with cwd=STARVLA_DIR
@@ -32,6 +32,8 @@ KEEP="${KEEP:-3}"
 KIT="$STARVLA_DIR/examples/UNITREE_G1_SONIC/train_files"
 mkdir -p "$KIT"
 ln -sfn "$REPO_ROOT/scripts/starvla/data_registry" "$KIT/data_registry"
+# QwenPI_CE head (framework.name=QwenPI_CE) ships in the vitorcen/StarVLA fork
+# checkout at starVLA/model/framework/VLM4A/QwenPI_CE.py — no runtime deploy needed.
 
 # Pre-run GPU hygiene (feedback-pre-run-gpu-check): refuse if >2GB already used.
 USED=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1)

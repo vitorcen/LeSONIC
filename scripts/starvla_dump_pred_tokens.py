@@ -29,7 +29,8 @@ import numpy as np
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 STARVLA_DIR = os.environ.get("STARVLA_DIR",
-                             os.path.join(REPO_ROOT, "..", "dependencies", "starVLA"))
+                             os.path.join(REPO_ROOT, "dependencies", "starVLA"))
+# QwenPI_CE head ships in the vitorcen/StarVLA fork checkout (no runtime deploy).
 
 # prompt -> output npz key (must match datasets/sonic_vla_pred_flow3 names so the
 # injector / build_flow3_sequence.py work unchanged on the StarVLA dumps)

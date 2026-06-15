@@ -23,7 +23,7 @@ ENV_NAME="${ENV_NAME:-isaaclab}"
 CKPT="${CKPT:-sonic_release/last.pt}"               # WBC ckpt (frozen base), not MaskBeT
 PKL="${PKL:-data/seg_flow3_all.pkl}"
 PORT="${MASKBET_PORT:-5557}"
-MASKBET_CKPT="${MASKBET_CKPT:-$REPO_ROOT/MaskBeT/outputs/flow3/ckpt_006000.pt}"
+MASKBET_CKPT="${MASKBET_CKPT:-$REPO_ROOT/dependencies/MaskBeT/outputs/flow3/ckpt_006000.pt}"
 DECODE="${DECODE:-expected}"                        # P1-validated: expected+snap > argmax
 ROUNDS="${ROUNDS:-3}"
 CAP="${CAP:-1200}"                                  # max_render safety cap (> any window len)
@@ -57,7 +57,7 @@ export SONIC_MASKBET_DECODE="$DECODE" SONIC_MASKBET_TEMP="${SONIC_MASKBET_TEMP:-
 start_server() {
   ps -eo cmd | grep -q "[s]erve_maskbet_sonic.py.*--port $PORT" && return 0
   for a in 1 2 3 4 5 6; do
-    ( cd "$REPO_ROOT" && MASKBET_DIR="$REPO_ROOT/MaskBeT" nohup "$ENV_BIN/python" \
+    ( cd "$REPO_ROOT" && MASKBET_DIR="$REPO_ROOT/dependencies/MaskBeT" nohup "$ENV_BIN/python" \
         "$REPO_ROOT/scripts/serve_maskbet_sonic.py" --ckpt "$MASKBET_CKPT" --port "$PORT" \
         --decode "$DECODE" > "$SERVER_LOG" 2>&1 & )
     for _ in $(seq 1 24); do

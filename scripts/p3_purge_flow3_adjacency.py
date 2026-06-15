@@ -18,11 +18,11 @@ Builds a clean raw dir (symlink unaffected runs, write head-trimmed npz for affe
 downstream npz->lerobot converter reruns unchanged.
 
     python scripts/p3_purge_flow3_adjacency.py \
-        --runs LeSONIC/MaskBeT/outputs/p3_recording_runs.csv \
+        --runs LeSONIC/dependencies/MaskBeT/outputs/p3_recording_runs.csv \
         --raw  LeSONIC/datasets/sonic_vla_raw_p3 \
         --data-dir LeSONIC/dependencies/GR00T-WholeBodyControl/data \
         --out-raw LeSONIC/datasets/sonic_vla_raw_p3_clean \
-        --out-csv LeSONIC/MaskBeT/outputs/p3_purge_trims.csv
+        --out-csv LeSONIC/dependencies/MaskBeT/outputs/p3_purge_trims.csv
 """
 from __future__ import annotations
 

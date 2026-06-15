@@ -9,10 +9,10 @@ carry no flow3 eval frames (leakage-free by construction — adjacent net pieces
 when <=1 frame apart, so flow3 gaps break the merge).
 
   python scripts/build_p3_runs_pkl.py \
-      --runs LeSONIC/MaskBeT/outputs/p3_recording_runs.csv \
+      --runs LeSONIC/dependencies/MaskBeT/outputs/p3_recording_runs.csv \
       --data-dir LeSONIC/dependencies/GR00T-WholeBodyControl/data \
       --out LeSONIC/dependencies/GR00T-WholeBodyControl/data/seg_p3_runs_all.pkl \
-      --meta LeSONIC/MaskBeT/outputs/p3_runs_manifest.csv
+      --meta LeSONIC/dependencies/MaskBeT/outputs/p3_runs_manifest.csv
 """
 from __future__ import annotations
 

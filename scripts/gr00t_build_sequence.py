@@ -103,11 +103,15 @@ def build_segments(items: list, pred_dir: str, settle: int, bootstrap_steps: int
         name = it["motion"]
         if name not in KEY:
             raise SystemExit(f"unknown motion '{name}'. choose from: {', '.join(KEY)}")
+        # JSON `steps` is the PURE motion budget (= P x full-clip length; what a percentage means).
+        # The seam settle is OVERHEAD added ON TOP, so the rendered motion length (live window, or
+        # full_bootstrap replay) always equals `steps` exactly — percentages are honoured 1:1.
         steps = int(it["steps"])
-        seg = {"prompt": PROMPT[name], "steps": steps}
+        se = settle if (i > 0 and settle > 0) else 0
+        seg = {"prompt": PROMPT[name], "steps": steps + se}
         # First segment starts from the env's reset pose (no settle needed); later seams settle.
-        if i > 0 and settle > 0:
-            seg["settle_steps"] = settle
+        if se:
+            seg["settle_steps"] = se
         if name in ONESHOT:
             npz = os.path.join(pred_dir, f"{KEY[name]}.npz")
             if not os.path.isfile(npz):

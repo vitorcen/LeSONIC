@@ -17,6 +17,9 @@
 #   bash scripts/gear_sonic_demo.sh kick       # single motion, one G1
 #   MOTION=dance bash scripts/gear_sonic_demo.sh
 #   names: dance | lunge | macarena | kick | squat | jump | walk | all
+# Defaults: yellow goal markers HIDDEN, camera pulled in close. Motion loops (replays on end).
+#   SHOW_MARKERS=1    show the yellow goal-marker spheres
+#   VIEW_EYE=... VIEW_LOOKAT=...  override the follow-camera framing
 # Viewer keys: F = free camera (stop auto-follow) · R = reset · T = next motion · V = ref skeleton.
 set -uo pipefail
 
@@ -29,6 +32,16 @@ PKL="${PKL:-data/demo_robot_filtered.pkl}"   # multi-motion robot_filtered (sing
 STAGE_DIR="${STAGE_DIR:-data/demo_base}"      # symlink staging of chosen demo motions
 FPS="${FPS:-50}"                              # eval target_fps=50; converter default is 30
 export DISPLAY="${DISPLAY:-:0}"
+
+# Demo viewing defaults (all overridable):
+#   * hide the yellow goal-marker spheres for a clean view. SHOW_MARKERS=1 -> show them.
+#   * pull the follow-camera CLOSER than the stock [4.5,0,4.0] top-down framing.
+DEBUG_VIS="${DEBUG_VIS:-False}"; [[ "${SHOW_MARKERS:-0}" == "1" ]] && DEBUG_VIS=True
+# Follow-cam: eye/lookat are offsets from the robot ROOT (pelvis, world z~0.75), NOT world coords.
+# To show the legs the camera must look DOWN, i.e. aim BELOW the root (negative lookat z) so the
+# feet/ground rise into frame; a small positive eye z keeps a gentle downward pitch.
+VIEW_EYE="${VIEW_EYE:-[3.0,0.0,0.5]}"          # back 3m, 0.5m above pelvis
+VIEW_LOOKAT="${VIEW_LOOKAT:-[0.0,0.0,-0.1]}"   # aim just below pelvis -> gentle down-tilt, legs still in frame
 
 # Short name -> full robot_filtered motion key (skip _M mirror variants).
 declare -A SHORT2KEY=(
@@ -97,6 +110,9 @@ conda run --no-capture-output -n "$ENV_NAME" python gear_sonic/eval_agent_trl.py
     ++manager_env.observations.policy.enable_corruption=False \
     ++manager_env.observations.tokenizer.enable_corruption=False \
     ++manager_env.commands.motion.use_paired_motions=True \
+    ++manager_env.commands.motion.debug_vis="$DEBUG_VIS" \
+    ++manager_env.config.viewer.eye="$VIEW_EYE" \
+    ++manager_env.config.viewer.lookat="$VIEW_LOOKAT" \
     "${FILTER_OVERRIDE[@]}" \
     "++manager_env.commands.motion.motion_lib_cfg.motion_file=$PKL" \
     "++manager_env.commands.motion.motion_lib_cfg.smpl_motion_file=dummy"

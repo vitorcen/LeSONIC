@@ -5,9 +5,12 @@
 	path = dependencies/GR00T-WholeBodyControl
 	url = https://github.com/NVlabs/GR00T-WholeBodyControl
 [submodule "MaskBeT"]
-	path = MaskBeT
+	path = dependencies/MaskBeT
 	url = git@github.com:vitorcen/MaskBeT.git
 [submodule "dependencies/starVLA"]
 	path = dependencies/starVLA
 	url = git@github.com:vitorcen/StarVLA.git
 	branch = starVLA_dev
+[submodule "dependencies/FlowHeads"]
+	path = dependencies/FlowHeads
+	url = git@github.com:vitorcen/FlowHeads.git

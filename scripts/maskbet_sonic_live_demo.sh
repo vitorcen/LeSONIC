@@ -18,7 +18,7 @@ ENV_BIN="${ENV_BIN:-$HOME/miniconda3/envs/starvla_eval_qwen35/bin}"
 # DEFAULT = the ⑦ flow head (best seed): it actually executes fight/dance closed-loop amplitude
 # (the old CE head under-executed them ~half). serve auto-detects head=flow from the ckpt cfg and
 # uses the flow sampler decode. Override MASKBET_CKPT to play the old CE ckpt.
-CKPT="${MASKBET_CKPT:-$REPO_ROOT/MaskBeT/outputs/flow_ab/flow_s2/ckpt_011500.pt}"
+CKPT="${MASKBET_CKPT:-$REPO_ROOT/dependencies/MaskBeT/outputs/flow_ab/flow_s2/ckpt_011500.pt}"
 SERVER_LOG="${SERVER_LOG:-/tmp/maskbet_sonic_server.log}"
 SEQ="${1:-@flow3}"
 
@@ -39,7 +39,7 @@ if ps -eo cmd | grep -q "[s]erve_maskbet_sonic.py.*--port $PORT"; then
 else
   [[ -f "$CKPT" ]] || { echo "[live-demo] ckpt not found: $CKPT (set MASKBET_CKPT=...)"; exit 1; }
   echo "[live-demo] starting MaskBeT server (ckpt=$(basename "$CKPT"), port=$PORT, decode=$SONIC_MASKBET_DECODE) ..."
-  ( cd "$REPO_ROOT" && MASKBET_DIR="$REPO_ROOT/MaskBeT" nohup "$ENV_BIN/python" \
+  ( cd "$REPO_ROOT" && MASKBET_DIR="$REPO_ROOT/dependencies/MaskBeT" nohup "$ENV_BIN/python" \
       "$REPO_ROOT/scripts/serve_maskbet_sonic.py" --ckpt "$CKPT" --port "$PORT" \
       --decode "$SONIC_MASKBET_DECODE" > "$SERVER_LOG" 2>&1 & )
   echo "[live-demo] loading the 25M model (GPF-prone box: auto-restarts on a crashed load) ..."
@@ -52,7 +52,7 @@ else
     done
     [[ "$ready" == "1" ]] && break
     echo "[live-demo] server load attempt $attempt died (kernel GPF burst?) — relaunching ..."
-    ( cd "$REPO_ROOT" && MASKBET_DIR="$REPO_ROOT/MaskBeT" nohup "$ENV_BIN/python" \
+    ( cd "$REPO_ROOT" && MASKBET_DIR="$REPO_ROOT/dependencies/MaskBeT" nohup "$ENV_BIN/python" \
         "$REPO_ROOT/scripts/serve_maskbet_sonic.py" --ckpt "$CKPT" --port "$PORT" \
         --decode "$SONIC_MASKBET_DECODE" > "$SERVER_LOG" 2>&1 & )
     sleep 3

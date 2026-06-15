@@ -13,10 +13,10 @@
 #   bash scripts/sonic_p5_closed_loop_ab.sh
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MIX_CKPT="${MIX_CKPT:-$REPO_ROOT/MaskBeT/outputs/p3_matrix/mix_s2/ckpt_011500.pt}"
-FLOW3_CKPT="${FLOW3_CKPT:-$REPO_ROOT/MaskBeT/outputs/p3_matrix/flow3_s2/ckpt_005000.pt}"
-GT_CSV="${GT_CSV:-$REPO_ROOT/MaskBeT/outputs/p1b_gt_baseline_plane.csv}"
-OUT_CSV="${OUT_CSV:-$REPO_ROOT/MaskBeT/outputs/p5_closed_loop_ab.csv}"
+MIX_CKPT="${MIX_CKPT:-$REPO_ROOT/dependencies/MaskBeT/outputs/p3_matrix/mix_s2/ckpt_011500.pt}"
+FLOW3_CKPT="${FLOW3_CKPT:-$REPO_ROOT/dependencies/MaskBeT/outputs/p3_matrix/flow3_s2/ckpt_005000.pt}"
+GT_CSV="${GT_CSV:-$REPO_ROOT/dependencies/MaskBeT/outputs/p1b_gt_baseline_plane.csv}"
+OUT_CSV="${OUT_CSV:-$REPO_ROOT/dependencies/MaskBeT/outputs/p5_closed_loop_ab.csv}"
 ROUNDS="${ROUNDS:-1}"            # expected+snap is deterministic -> 1 round (matches P1b/GT baseline)
 
 run_arm() { # name ckpt

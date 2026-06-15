@@ -19,7 +19,7 @@ state group back to its raw column BEFORE normalizing, else right_arm proprio fr
 
 Run in any env with zmq + torch (e.g. starvla_eval_qwen35; the base env's zmq is broken):
     .../bin/python scripts/serve_maskbet_sonic.py \
-        --ckpt MaskBeT/outputs/flow3/ckpt_006000.pt --port 5557
+        --ckpt dependencies/MaskBeT/outputs/flow3/ckpt_006000.pt --port 5557
 """
 from __future__ import annotations
 

@@ -11,14 +11,20 @@
   },
 
   "flow2": {
-    "desc": "Action -> walk-through -> action -> walk-through ... interleaved locomotion, looping. Actions are live GR00T; walk segments are continuous (full_bootstrap replay of the walk-and-turn clip).",
+    "desc": "All 6 deploy actions, each preceded by a walk-through, looping: walk -> kick -> walk -> jump -> walk -> dance -> walk -> macarena -> walk -> squat -> walk -> lunge (-> loops back to walk). Order updated 2026-06-15. HONEST LIVE (no full_bootstrap GT replay, removed 2026-06-15 per user — no self-deception): every segment shows the live StarVLA model. Self-sustaining actions (dance/macarena/squat/lunge) run pure live from the start. One-shot actions (walk/kick/jump) can't self-start from rest, so they get the default short ~80-step entry bootstrap to ENTER the move, then hand to live — NOT a whole-segment replay. EXPECTED: with this from-scratch head (macro-MSE 0.0236, ~19x worse than GR00T N1.7) the live span will drift/collapse and the WBC will visibly fight it — that is the honest quality of the model.",
     "segments": [
-      {"motion": "squat",    "steps": 160},
-      {"motion": "walk",     "steps": 240, "full_bootstrap": true},
-      {"motion": "macarena", "steps": 200},
-      {"motion": "walk",     "steps": 240, "full_bootstrap": true},
-      {"motion": "lunge",    "steps": 160},
-      {"motion": "walk",     "steps": 240, "full_bootstrap": true}
+      {"motion": "walk",     "steps": 455},
+      {"motion": "kick",     "steps": 165},
+      {"motion": "walk",     "steps": 455},
+      {"motion": "jump",     "steps": 500},
+      {"motion": "walk",     "steps": 455},
+      {"motion": "dance",    "steps": 497},
+      {"motion": "walk",     "steps": 455},
+      {"motion": "macarena", "steps": 1375},
+      {"motion": "walk",     "steps": 455},
+      {"motion": "squat",    "steps": 424},
+      {"motion": "walk",     "steps": 455},
+      {"motion": "lunge",    "steps": 399}
     ]
   },
 

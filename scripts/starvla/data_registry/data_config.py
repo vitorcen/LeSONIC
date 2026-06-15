@@ -88,4 +88,13 @@ DATASET_NAMED_MIXTURES = {
     "sonic_lafan_run3": [
         ("sonic_vla_lerobot_run3", 1.0, "unitree_g1_sonic"),
     ],
+    # BonesSeed: the 7 distinct LAFAN motions (dance / forward lunge / macarena /
+    # kick / squat / jump on one leg / walk and turn around), 7 episodes / 3815
+    # frames / fps 50. Same GR00T embodiment schema (modality.json identical to
+    # flow3) so the UnitreeG1SonicConfig above applies verbatim. This is the
+    # token-generation testbed for StarVLA QwenGR00T_v2, mirroring the GR00T
+    # N1.7 BonesSeed finetune and the FlowDP-SONIC head.
+    "sonic_bonesseed": [
+        ("sonic_vla_lerobot", 1.0, "unitree_g1_sonic"),
+    ],
 }

@@ -113,14 +113,25 @@ def build_segments(items: list, pred_dir: str, settle: int, bootstrap_steps: int
         if se:
             seg["settle_steps"] = se
         if name in ONESHOT:
-            npz = os.path.join(pred_dir, f"{KEY[name]}.npz")
-            if not os.path.isfile(npz):
-                raise SystemExit(f"bootstrap dump missing for one-shot '{name}': {npz}\n"
-                                 f"  run scripts/gr00t_dump_pred_tokens.py first.")
-            seg["bootstrap_npz"] = npz
-            # full_bootstrap: replay the WHOLE segment from the dump (continuous locomotion);
-            # else just a short window to enter the motion, then hand to live GR00T.
-            seg["bootstrap_steps"] = steps if it.get("full_bootstrap") else bootstrap_steps
+            # Per-segment bootstrap policy (priority order):
+            #   "bootstrap_steps": N  -> explicit window (0 = pure live from step 0, no replay);
+            #   "full_bootstrap": true -> replay the WHOLE segment from the dump (continuous);
+            #   else                   -> short default window to enter the motion, then live.
+            if "bootstrap_steps" in it:
+                bs = int(it["bootstrap_steps"])
+            elif it.get("full_bootstrap"):
+                bs = steps
+            else:
+                bs = bootstrap_steps
+            seg["bootstrap_steps"] = bs
+            # Only a non-zero bootstrap needs the predicted-token dump; bs=0 is pure live,
+            # with no replay dependency at all (no npz required).
+            if bs > 0:
+                npz = os.path.join(pred_dir, f"{KEY[name]}.npz")
+                if not os.path.isfile(npz):
+                    raise SystemExit(f"bootstrap dump missing for one-shot '{name}': {npz}\n"
+                                     f"  run scripts/gr00t_dump_pred_tokens.py first.")
+                seg["bootstrap_npz"] = npz
         segments.append(seg)
     return segments
 

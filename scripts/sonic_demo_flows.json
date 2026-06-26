@@ -1,42 +1,91 @@
 {
-  "_doc": "GR00T-SONIC demo flows. A flow is an ordered list of segments played as one looping live session (modulo loop, no GUI/server restart). Each segment: motion (one of dance|lunge|macarena|kick|squat|jump|walk), steps (control steps @50Hz, ~0.02s each), and optional full_bootstrap (replay the whole segment from the open-loop dump token instead of handing to live GR00T after the bootstrap window — used to make a one-shot locomotion clip play continuously, e.g. a walk-through between actions). Self-sustaining motions (squat/lunge/dance/macarena) run pure live; one-shot motions (kick/walk/jump) get a bootstrap window by default, or full_bootstrap for continuous playback.",
-
-  "flow1": {
-    "desc": "Discrete actions, equal time, looping. All self-sustaining (pure live GR00T, no bootstrap).",
-    "segments": [
-      {"motion": "squat",    "steps": 200},
-      {"motion": "lunge",    "steps": 200},
-      {"motion": "macarena", "steps": 200}
-    ]
-  },
-
-  "flow2": {
-    "desc": "All 6 deploy actions, each preceded by a walk-through, looping: walk -> kick -> walk -> jump -> walk -> dance -> walk -> macarena -> walk -> squat -> walk -> lunge (-> loops back to walk). Order updated 2026-06-15. HONEST LIVE (no full_bootstrap GT replay, removed 2026-06-15 per user — no self-deception): every segment shows the live StarVLA model. ZERO REPLAY (per user 2026-06-24, LeSONIC goal = let the VLA produce the motion): EVERY segment is bootstrap_steps:0 = pure live from step 0, no dump-token injection anywhere. dance/macarena/squat/lunge are self-sustaining and never needed a bootstrap; walk/kick/jump are one-shots that previously got a short entry bootstrap to start from rest — that entry is now removed too, so the VLA must self-initiate them. The only non-VLA window left is the 40-step seam settle (returns toward a neutral anchor between segments; injects NOTHING unless NEUTRAL_NPZ is set, which it is not by default = a plain freeze, not motion replay). EXPECTED: with this from-scratch head (macro-MSE 0.0236, ~19x worse than GR00T N1.7) the one-shots may fail to self-start and drift/collapse and the WBC will visibly fight it — that is the honest quality of the model.",
-    "segments": [
-      {"motion": "walk",     "steps": 455, "bootstrap_steps": 0},
-      {"motion": "kick",     "steps": 165, "bootstrap_steps": 0},
-      {"motion": "walk",     "steps": 455, "bootstrap_steps": 0},
-      {"motion": "jump",     "steps": 500, "bootstrap_steps": 0},
-      {"motion": "walk",     "steps": 455, "bootstrap_steps": 0},
-      {"motion": "dance",    "steps": 497},
-      {"motion": "walk",     "steps": 455, "bootstrap_steps": 0},
-      {"motion": "macarena", "steps": 1375},
-      {"motion": "walk",     "steps": 455, "bootstrap_steps": 0},
-      {"motion": "squat",    "steps": 424},
-      {"motion": "walk",     "steps": 455, "bootstrap_steps": 0},
-      {"motion": "lunge",    "steps": 399}
-    ]
-  },
-
-  "flow3": {
-    "desc": "flow3 LAFAN hand-picked windows, user order fight1->run3->fight2->run2->dance1->run1, looping. ZERO REPLAY (per user 2026-06-24, LeSONIC goal = let the VLA produce the motion): every window is bootstrap_steps:0 = pure live GR00T (outputs/gr00t_sonic_flow3) from step 0, no dump-token injection. Each window is a one-shot that the VLA must now self-initiate from rest, so it may fail to start / settle toward standing (the known no-memory limitation) — that is the honest live quality; the offline gear_sonic_flow3.sh loop is the guaranteed-smooth (but replayed, not live) version. Per-segment bootstrap_steps:N re-enables an N-step entry window, or full_bootstrap:true replays a whole segment. Requires GR00T_CKPT=outputs/gr00t_sonic_flow3/checkpoint-6000 PKL=data/seg_flow3_all.pkl (PRED_DIR only needed when a segment re-enables a bootstrap).",
-    "segments": [
-      {"motion": "block",    "steps": 542, "bootstrap_steps": 0},
-      {"motion": "circle",   "steps": 749, "bootstrap_steps": 0},
-      {"motion": "combat",   "steps": 749, "bootstrap_steps": 0},
-      {"motion": "sprint",   "steps": 749, "bootstrap_steps": 0},
-      {"motion": "moonwalk", "steps": 999, "bootstrap_steps": 0},
-      {"motion": "jogback",  "steps": 749, "bootstrap_steps": 0}
-    ]
-  }
+ "_doc": "GR00T-SONIC demo flows. A flow is an ordered list of segments played as one looping live session (modulo loop, no GUI/server restart). Each segment: motion (one of dance|lunge|macarena|kick|squat|jump|walk), steps (control steps @50Hz, ~0.02s each), and optional full_bootstrap (replay the whole segment from the open-loop dump token instead of handing to live GR00T after the bootstrap window — used to make a one-shot locomotion clip play continuously, e.g. a walk-through between actions). Self-sustaining motions (squat/lunge/dance/macarena) run pure live; one-shot motions (kick/walk/jump) get a bootstrap window by default, or full_bootstrap for continuous playback.",
+ "flow1": {
+  "desc": "Discrete actions, equal time, looping. All self-sustaining (pure live GR00T, no bootstrap).",
+  "segments": [
+   {
+    "motion": "squat",
+    "steps": 200
+   },
+   {
+    "motion": "lunge",
+    "steps": 200
+   },
+   {
+    "motion": "macarena",
+    "steps": 200
+   }
+  ]
+ },
+ "flow2": {
+  "desc": "Deploy actions, looping: squat -> jump -> dance -> walk -> lunge -> kick -> macarena (-> loops back to squat). Order updated 2026-06-26 per user (was kick->walk->jump->...). HONEST LIVE (no full_bootstrap GT replay): every segment shows the live model. ZERO REPLAY (per user 2026-06-24, LeSONIC goal = let the VLA produce the motion): EVERY one-shot segment is bootstrap_steps:0 = pure live from step 0, no dump-token injection anywhere. dance/macarena/squat/lunge are self-sustaining and never needed a bootstrap; walk/kick/jump are one-shots that the VLA must self-initiate. The only non-VLA window left is the 40-step seam settle (returns toward a neutral anchor between segments; injects NOTHING unless NEUTRAL_NPZ is set, which it is not by default = a plain freeze, not motion replay).",
+  "segments": [
+   {
+    "motion": "squat",
+    "steps": 424
+   },
+   {
+    "motion": "jump",
+    "steps": 500,
+    "bootstrap_steps": 0
+   },
+   {
+    "motion": "dance",
+    "steps": 497
+   },
+   {
+    "motion": "walk",
+    "steps": 455,
+    "bootstrap_steps": 0
+   },
+   {
+    "motion": "lunge",
+    "steps": 399
+   },
+   {
+    "motion": "kick",
+    "steps": 165,
+    "bootstrap_steps": 0
+   },
+   {
+    "motion": "macarena",
+    "steps": 1375
+   }
+  ]
+ },
+ "flow3": {
+  "desc": "flow3 LAFAN hand-picked windows, user order fight1->run3->fight2->run2->dance1->run1, looping. ZERO REPLAY (per user 2026-06-24, LeSONIC goal = let the VLA produce the motion): every window is bootstrap_steps:0 = pure live GR00T (outputs/gr00t_sonic_flow3) from step 0, no dump-token injection. Each window is a one-shot that the VLA must now self-initiate from rest, so it may fail to start / settle toward standing (the known no-memory limitation) — that is the honest live quality; the offline gear_sonic_flow3.sh loop is the guaranteed-smooth (but replayed, not live) version. Per-segment bootstrap_steps:N re-enables an N-step entry window, or full_bootstrap:true replays a whole segment. Requires GR00T_CKPT=outputs/gr00t_sonic_flow3/checkpoint-6000 PKL=data/seg_flow3_all.pkl (PRED_DIR only needed when a segment re-enables a bootstrap).",
+  "segments": [
+   {
+    "motion": "block",
+    "steps": 542,
+    "bootstrap_steps": 0
+   },
+   {
+    "motion": "circle",
+    "steps": 749,
+    "bootstrap_steps": 0
+   },
+   {
+    "motion": "combat",
+    "steps": 749,
+    "bootstrap_steps": 0
+   },
+   {
+    "motion": "sprint",
+    "steps": 749,
+    "bootstrap_steps": 0
+   },
+   {
+    "motion": "moonwalk",
+    "steps": 999,
+    "bootstrap_steps": 0
+   },
+   {
+    "motion": "jogback",
+    "steps": 749,
+    "bootstrap_steps": 0
+   }
+  ]
+ }
 }

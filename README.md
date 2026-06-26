@@ -54,12 +54,15 @@ _Swap the token producer for a backbone-free, from-scratch 25M masked transforme
 
 | | |
 |---|---|
-| 模型 / Model | [`wsagi/GR00T-N1.7-G1-SONIC-BonesSeed`](https://huggingface.co/wsagi/GR00T-N1.7-G1-SONIC-BonesSeed) — checkpoint-8000 推理权重 + 7 闭环 demo |
-| 数据集 / Dataset | [`wsagi/SONIC-VLA-BonesSeed`](https://huggingface.co/datasets/wsagi/SONIC-VLA-BonesSeed) — LeRobot v2.1，7 动作各 1 ep（3815 帧） |
-| 血缘 / Lineage | `bones-studio/seed → nvidia/GEAR-SONIC → wsagi/SONIC-VLA-BonesSeed → wsagi/GR00T-N1.7-G1-SONIC-BonesSeed` |
+| 🌟 模型 V2 / Model V2 | [`wsagi/GR00T-N1.7-G1-SONIC-BonesSeed-V2`](https://huggingface.co/wsagi/GR00T-N1.7-G1-SONIC-BonesSeed-V2) — **冷启动修复版**（物理增广 + onset 加权 + stand，kick/walk/jump 可从冷站立自启，零 bootstrap）+ 2 段闭环 demo |
+| 🌟 数据集 V2 / Dataset V2 | [`wsagi/SONIC-VLA-BonesSeed-V2`](https://huggingface.co/datasets/wsagi/SONIC-VLA-BonesSeed-V2) — LeRobot v2.1，54 ep / 12 630 帧（7 动作 + **物理 WBC-rollout 过渡增广** + stand） |
+| 模型 V1 / Model V1 | [`wsagi/GR00T-N1.7-G1-SONIC-BonesSeed`](https://huggingface.co/wsagi/GR00T-N1.7-G1-SONIC-BonesSeed) — baseline checkpoint-8000（一次性动作需 bootstrap）+ 7 闭环 demo |
+| 数据集 V1 / Dataset V1 | [`wsagi/SONIC-VLA-BonesSeed`](https://huggingface.co/datasets/wsagi/SONIC-VLA-BonesSeed) — LeRobot v2.1，7 动作各 1 ep（3815 帧） |
+| 血缘 / Lineage | `bones-studio/seed → nvidia/GEAR-SONIC → wsagi/SONIC-VLA-BonesSeed{,-V2} → wsagi/GR00T-N1.7-G1-SONIC-BonesSeed{,-V2}` |
 
-> ⚠️ **状态 = derisk / proof-of-concept**：记忆 7 动作（各 1 ep），**泛化未测**；闭环 demo 在放宽终止（`RELAX=1`）下录制。
-> 完整批判 + P0–P4 roadmap 见 [`doc/sonic_vla_critique_roadmap.html`](doc/sonic_vla_critique_roadmap.html)（三模型联合评审）。
+> ▶️ **直接跑(没自己训练)**：`BonesSeed.ipynb` 顶部 ⬇️ 下载 cell 会拉 V2，1.1/1.2/1.2a 自动解析「自训 → 否则 V2」。
+> ⚠️ **状态 = derisk / proof-of-concept**：记忆 8 prompt，**泛化未测**；闭环 demo 在放宽终止（`RELAX=1`）下录制；
+> V2 冷启动 LAUNCH 仍有随机性（每动作 ~50–100%，非确定 3/3）。完整批判 + roadmap 见 [`doc/sonic_vla_critique_roadmap.html`](doc/sonic_vla_critique_roadmap.html)。
 
 ## 目录 / Layout
 

@@ -3,7 +3,7 @@ datasets/
 outputs/
 logs/
 # HF upload staging (weights + model card); pushed to HF, not git
-hf_upload/
+hf_upload*/
 # python envs / caches (submodules build their own .venv)
 **/.venv*/
 **/__pycache__/

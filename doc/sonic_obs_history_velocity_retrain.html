@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SONIC-VLA 架构治本：obs 加速度 + history 重训方案</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{max-width:960px;margin:0 auto;padding:28px 20px;background:#fff;color:#1a1a1a;
+  font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans CJK SC","Microsoft YaHei",sans-serif;line-height:1.62}
+h1{font-size:1.7rem;border-bottom:3px solid #2563eb;padding-bottom:.4em;color:#0f172a}
+h2{font-size:1.3rem;margin-top:2em;color:#1e3a8a;border-left:5px solid #2563eb;padding-left:.5em}
+h3{font-size:1.08rem;color:#1e40af;margin-top:1.4em}
+code{background:#f1f5f9;color:#b91c1c;padding:.1em .35em;border-radius:4px;font-size:.9em}
+pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:.84rem;line-height:1.5}
+pre code{background:none;color:#e2e8f0;padding:0}
+table{border-collapse:collapse;width:100%;margin:1em 0;background:#fff;color:#1a1a1a;font-size:.9rem}
+th,td{border:1px solid #cbd5e1;padding:7px 10px;text-align:left;background:#fff;color:#1a1a1a}
+th{background:#eff6ff;color:#0f172a}
+.tldr{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:16px 20px;margin:1.2em 0}
+.warn{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 18px;margin:1em 0;color:#7f1d1d}
+.ok{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;margin:1em 0;color:#14532d}
+.en{color:#475569;font-style:italic;font-size:.92em}
+.tag{display:inline-block;background:#2563eb;color:#fff;border-radius:4px;padding:1px 8px;font-size:.78rem;margin-right:6px}
+.tag.neg{background:#dc2626}.tag.mod{background:#d97706}
+svg{display:block;margin:1.2em auto;background:#fff;max-width:100%}
+ul,ol{padding-left:1.4em}
+li{margin:.3em 0}
+.f{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.84em;color:#0369a1}
+</style>
+</head>
+<body>
+
+<h1>SONIC-VLA 架构治本：观测加速度 + 历史窗 重训方案</h1>
+<p class="en">Architectural cure for the cold-stand freeze: add proprioceptive velocity &amp; observation history to a single-frame token VLA.</p>
+
+<div class="tldr">
+<b>TL;DR</b><br>
+<b>问题</b>：GR00T-N1.7 SONIC 是<b>单帧、无速度</b>的 token VLA。冷/漂移站立时 obs 退化 → prompt 条件塌缩 → kick/jump/walk 冻结（<span class="en">conditioning collapses at OOD static stand</span>）。Tier-1 重训修好了 in-dist 站立，Tier-2 CFG 实测<b>救不了</b>OOD（放大的是退化噪声方向）。<br><br>
+<b>方案</b>：给 observation 加 ① <b>关节速度</b>（数据重建时差分）② <b>历史窗 T=2~3</b>（过去帧）。<br>
+<b>关键发现</b>：<span class="tag mod">MODERATE</span> GR00T-N1.7 <b>原生支持</b>历史窗与扩展 state，无需深度架构改动 —— state encoder 输入维 = <code>max_state_dim × state_history_length</code>，前向已按 <code>[B,T,D]→[B,1,T·D]</code> 处理，无硬编码 squeeze。<code>max_state_dim=132</code> 是 padding 维，当前 SONIC state 仅 46 维，加速度后 ~89 维仍有余量。<br><br>
+<b>诚实边界（经 codex gpt-5.5 评审修正）</b>：速度在<b>纯静止</b>站立=0，且<b>3 帧 OOD 历史仍是 OOD</b>（不会"摊平"持续漂移姿）→ velocity/history <b>无法修复冷启动那一次失败的首预测</b>，只能改善<b>启动后的承接/sustain</b> 与一般闭环质量。<b>walk（首 chunk 已 tok_std=0.171=hold）大概率救不了</b>。<span class="en">3 OOD frames stay OOD; velocity=0 at static stand → cannot repair the failed FIRST prediction, only sustain after motion begins.</span>
+</div>
+
+<div class="warn">
+<b>★ codex 评审颠覆性结论：架构改不是本 onset 冻结的最高 ROI。</b> 正确投资顺序 =
+<b>① 切换前 re-anchor 到已演示站立姿</b>（最高可靠/最低训练风险）→
+<b>② Tier-3 onset priming</b>（冷切换的针对性疗法）→
+<b>③ velocity+history T=2 重训</b>（提升一般闭环质量与 sustain，<b>非</b> onset 首选）。
+本方案保留为③，但建议先做①②。
+</div>
+
+<h2>1. 根因回顾与已排除项 <span class="en">Root cause &amp; what's already ruled out</span></h2>
+<table>
+<tr><th>层</th><th>结论</th><th>证据</th></tr>
+<tr><td>根因</td><td>单帧无速度 → 静止站立处 "hold" 与 "kick-onset" 仅靠 prompt 区分；OOD 站立姿 prompt 信号塌缩</td><td>prompt_selectivity：in-dist drift 0.247(prompt赢) vs OOD-reset 0.084(塌hold)</td></tr>
+<tr><td>Tier-1 数据+state增广</td><td>✅ 修好 <b>in-dist</b> 站立：settle→kick 真踢(脚0.797/exc3.31)、jump 起跳；walk❌(预测层最subtle没学起)</td><td>settle-then-switch 闭环</td></tr>
+<tr><td>Tier-2 CFG</td><td><span class="tag neg">负</span> 冷 Isaac-reset basin 全冻：null="" / "stand" s 到 3.0 脚永不抬，只增弥散乱动</td><td>|cond−uncond|≈0.04/元素 &lt; FSQ网格0.0625；cond/uncond 都塌hold</td></tr>
+</table>
+<p>→ CFG 放大 conditioning，但 conditioning 一旦塌缩就无可放大。<b>必须从 obs 表征下手让它不塌</b>。</p>
+
+<h2>2. 架构勘探结论（file:line 实证）<span class="en">Feasibility audit</span></h2>
+<div class="ok">
+<b>GR00T-N1.7 原生支持历史窗 + 扩展 state，改动 MODERATE（非深度架构）。</b>
+</div>
+<table>
+<tr><th>问题</th><th>结论</th><th>位置</th></tr>
+<tr><td>历史窗机制</td><td>obs 由 <code>delta_indices</code> 控制；当前 SONIC state/video = <code>[0]</code>（单帧）。data loader 按 delta_indices <code>np.vstack</code> 成 <code>(T,D)</code></td><td class="f">embodiment_configs.py:67-84；sharded_single_step_dataset.py:41,51-58</td></tr>
+<tr><td>模型是否吃 T&gt;1</td><td><b>是</b>。state encoder 输入维 = <code>max_state_dim × state_history_length</code>；前向 <code>assert state.shape[1]==state_history_length</code> 后 <code>view(B,1,T·D)</code>，无 squeeze/[:,0] 截断</td><td class="f">gr00t_n1d7.py:66-71,199-200,300-304</td></tr>
+<tr><td>state 维定义</td><td><code>max_state_dim=132</code> 是<b>padding 维</b>；实际维由 dataset statistics 派生。SONIC 现 46 维 → 加速度后 ~89 &lt; 132，<b>无需改 max_state_dim</b></td><td class="f">configs/model/gr00t_n1d7.py:73,80；state_action_processor.py:188-250</td></tr>
+<tr><td>processor 时间轴</td><td>跨 modality_keys 在最后维 cat，<b>保留 T 轴</b>不 squeeze；video 同样保留 T</td><td class="f">processing_gr00t_n1d7.py:580-581,412-415</td></tr>
+</table>
+
+<h2>3. 方案设计 <span class="en">Design</span></h2>
+
+<svg width="900" height="300" viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="obs flow before/after">
+  <style>
+    .box{fill:#eff6ff;stroke:#2563eb;stroke-width:1.5}
+    .boxn{fill:#fef2f2;stroke:#dc2626;stroke-width:1.5}
+    .boxg{fill:#f0fdf4;stroke:#16a34a;stroke-width:1.5}
+    .t{font:13px sans-serif;fill:#0f172a}.ts{font:11px sans-serif;fill:#475569}
+    .tt{font:bold 13px sans-serif;fill:#1e3a8a}
+    .ar{stroke:#64748b;stroke-width:1.5;marker-end:url(#a)}
+  </style>
+  <defs><marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#64748b"/></marker></defs>
+
+  <text x="20" y="24" class="tt">当前 (single-frame, no velocity)</text>
+  <rect class="boxn" x="20" y="40" width="150" height="46" rx="6"/>
+  <text x="32" y="60" class="t">state[t]  46-d</text>
+  <text x="32" y="78" class="ts">关节角 only · T=1</text>
+  <rect class="box" x="20" y="98" width="150" height="40" rx="6"/>
+  <text x="32" y="123" class="t">ego_view[t] · T=1</text>
+  <line class="ar" x1="170" y1="88" x2="240" y2="88"/>
+  <rect class="box" x="240" y="64" width="120" height="48" rx="6"/>
+  <text x="252" y="84" class="t">VLA backbone</text>
+  <text x="252" y="100" class="ts">→ 40×64 token</text>
+  <text x="20" y="170" class="ts" fill="#dc2626">冷/漂移站立 → state 退化 → prompt 塌缩 → 冻结</text>
+
+  <text x="480" y="24" class="tt">方案 (velocity + history T=3)</text>
+  <rect class="boxg" x="480" y="40" width="200" height="58" rx="6"/>
+  <text x="492" y="60" class="t">state[t-2,t-1,t]</text>
+  <text x="492" y="78" class="ts">角度46 + 速度43 = 89-d</text>
+  <text x="492" y="92" class="ts">× T=3  →  encoder 吃 132·3</text>
+  <rect class="box" x="480" y="110" width="200" height="40" rx="6"/>
+  <text x="492" y="135" class="t">ego_view[t] · T=1 (不变)</text>
+  <line class="ar" x1="680" y1="92" x2="740" y2="92"/>
+  <rect class="boxg" x="740" y="68" width="140" height="48" rx="6"/>
+  <text x="752" y="88" class="t">VLA backbone</text>
+  <text x="752" y="104" class="ts">state_hist_len=3</text>
+  <text x="480" y="185" class="ts" fill="#16a34a">速度+历史 → 表征不退化 → 启动后承接 → 不塌回 hold</text>
+  <text x="480" y="205" class="ts">video 保持 T=1（省 VLM token，ego 帧间几乎不变）</text>
+</svg>
+
+<h3>3a. 关节速度 <span class="en">Joint velocity</span></h3>
+<ul>
+<li>数据侧：<code>sonic_vla_resample_build.py</code> 逐 episode 算 <code>vel[t]=(j[t]−j[t-1])·fps</code>（首帧补 0），拼到 <code>observation.state</code> 角度之后。</li>
+<li>新增 state key（7 关节组的速度，43 维；<code>projected_gravity</code> 是常零不加速度）：<code>left_leg_vel … right_hand_vel</code>。</li>
+<li>embodiment <code>unitree_g1_sonic</code> state.modality_keys 追加这 7 个 vel key（<span class="f">embodiment_configs.py:72-84</span>）。</li>
+<li>重算 dataset <code>statistics.json</code>（含新 key 的 min/max/mean/std）；processor 自动归一化拼接。</li>
+</ul>
+
+<h3>3b. 历史窗 <span class="en">Observation history</span></h3>
+<ul>
+<li>state <code>delta_indices: [0] → [-2,-1,0]</code>（T=3）或 <code>[-1,0]</code>（T=2）。</li>
+<li>model config <code>state_history_length: 1 → 3</code>（<span class="f">configs/model/gr00t_n1d7.py:80</span>）。state encoder 输入维自动变 <code>132×3</code>，从零重训该 MLP（finetune 本就重训 head）。</li>
+<li><b>video 保持 T=1</b>：ego-view 帧间几乎不变，加 video 历史 = 多倍 VLM token，成本高收益低。先只做 state 历史。</li>
+</ul>
+
+<h3>3c. 部署侧（injector）<span class="en">Deploy-side</span></h3>
+<ul>
+<li><code>vla_live_injector.py</code> 需缓存最近 K 帧 state，发 <code>[K,D]</code>；并在线算速度 <code>(q[t]−q[t-1])·hz</code>。</li>
+<li>首 K-1 帧用复制首帧补齐（warmup）。</li>
+<li>训练/部署的速度定义（fps×差分）必须一致，否则归一化错位。</li>
+</ul>
+
+<h2>4. 机制诚实分析 <span class="en">Does it really fix onset? (honest)</span></h2>
+<div class="warn">
+<b>速度在纯静止站立 = 0；且 K 帧重复 OOD 姿仍是 OOD</b>（codex 反驳了原稿"历史摊平 OOD"的说法 —— 三帧 OOD 不会变 in-dist）。所以在<b>精确零速度冷启动</b>那一刻，state（角度+速度+历史）几乎无法区分 "hold" 与 "即将 kick" —— onset 决策仍只靠 prompt。<b>velocity/history 无法修复冷启动的首次失败预测。</b>
+</div>
+<p>它真正买到的（已收窄为两件，且都在动作<b>起来之后</b>）：</p>
+<ol>
+<li><b>承接/sustain</b>：一旦动作起了一点点（靠 prompt 或 priming 触发），速度≠0 + 历史轨迹 → 模型读到"正在运动"→ 续出 onset token，而非塌回 hold。<b>"自锁 hold 吸引子"仅在首预测失败之后成立</b>（hold 输出保持零速度→后续 obs 留在同一盆）—— velocity/history 防的是这个二阶衰减，不是一阶启动。</li>
+<li><b>一般闭环质量 / 相位估计 / 瞬态噪声恢复</b>：多帧上下文让 token 序列更平滑、对单帧传感噪声更鲁棒。</li>
+</ol>
+<div class="warn"><b>对 walk：大概率无效。</b> walk 首 chunk 已是 hold（tok_std 0.171），预测器尚未吐出任何运动信号 → 无运动可承接。velocity/history 能防 walk 起来后衰减，但<b>不能让 walk 起步</b>。walk 的起步缺口要靠数据侧 onset 教学或 priming。</div>
+<p>结论：<b>velocity/history 是闭环质量改进，不是 onset 冻结的解药</b>。onset 必须靠 ①re-anchor 或 ②priming 或 数据侧 onset 前缀。三者与本架构改<b>互补</b>，但优先级在前。</p>
+
+<h2>5. 实施步骤与文件清单 <span class="en">Plan &amp; files</span></h2>
+<table>
+<tr><th>#</th><th>动作</th><th>文件</th></tr>
+<tr><td>1</td><td>数据重建加速度差分 + 拼 state；导出 resampled4</td><td class="f">LeSONIC/scripts/sonic_vla_resample_build.py</td></tr>
+<tr><td>2</td><td>embodiment SONIC state 追加 7 vel key + delta_indices=[-2,-1,0]</td><td class="f">dependencies/Isaac-GR00T/.../embodiment_configs.py</td></tr>
+<tr><td>3</td><td>state_history_length 1→3</td><td class="f">configs/model/gr00t_n1d7.py:80</td></tr>
+<tr><td>4</td><td>重算 dataset statistics.json（含 vel key）</td><td class="f">dataset/meta/</td></tr>
+<tr><td>5</td><td>injector 缓存 K 帧 + 在线算速度 + warmup 补齐</td><td class="f">gear_sonic/data/vla_live_injector.py</td></tr>
+<tr><td>6</td><td>smoke(~500步验不崩+维度对) → warm 续训 from rs3 best 或从 8k 重训</td><td class="f">scripts/gr00t_sonic_finetune.sh</td></tr>
+<tr><td>7</td><td>验收 = settle-then-switch（kick/jump/walk）+ drift-stand 复现，<b>非</b>开环 MSE</td><td class="f">/tmp 驱动脚本</td></tr>
+</table>
+
+<h3>从哪续训？<span class="en">Warm-start vs scratch</span></h3>
+<p>state encoder 输入维变了（46→89×3），<b>该 MLP 必须从零</b>；但 VLM backbone + action head 可继承 rs3。建议：<b>从 8k clean 重训</b>（rs3 已含 Tier-1 数据增益，但其 state encoder 与新维不兼容，继承 head 即可）。预算沿用 6ep 甜点（≈数千步）。</p>
+
+<h2>6. Silent blockers（codex 评审挖出，实施前必处理）<span class="en">Implementation blockers</span></h2>
+<div class="warn">这些是会<b>静默破坏</b>训练/部署、不报错的坑，比"风险"更硬。</div>
+<table>
+<tr><th>#</th><th>blocker</th><th>处理</th></tr>
+<tr><td>B1</td><td><b>负历史 = 时间泄漏</b>：<code>allow_padding=False</code> 且 dataset 采样 step 0 时，<code>iloc[-2/-1]</code> 会从 <b>episode 末尾</b>取帧（<span class="f">sharded_single_step_dataset.py:40</span>）→ 严重时序泄漏</td><td>显式排除前 K-1 索引 / 开启并测试 padding；<b>必须验证</b>首帧取到的是同 episode 的复制而非别处</td></tr>
+<tr><td>B2</td><td><b>warm-start 非自动</b>：改 history → state_encoder 权重 shape 变 → checkpoint 加载<b>拒绝</b>不匹配 key 而非选择性重初始化（<span class="f">setup.py:107</span>）</td><td>写自定义 ckpt 迁移：只继承 VLM+action head，state_encoder 从零</td></tr>
+<tr><td>B3</td><td><b>config 覆盖可能无效</b>：改源码默认 <code>state_history_length</code> 未必盖过 checkpoint 里存的值</td><td>验证<b>实例化后</b>的 config，不是源码默认</td></tr>
+<tr><td>B4</td><td><b>表征断层</b>：随机 state_encoder 喂预训练 action head = 大表征不连续；"几千步"无依据</td><td>分阶段 LR / 先冻 downstream 数百步再放开；预算上调，别按 6ep 想当然</td></tr>
+<tr><td>B5</td><td><b>速度语义</b>：不是简单 ×FPS。需精确关节序、基于 timestamp 的 Δt、episode 边界 reset、滤波/clip、训练与部署<b>同采样/控制率语义</b></td><td>用 timestamp 算 Δt；首帧 vel=0；部署在线速度与训练逐字段对齐（最易 silent bug）</td></tr>
+</table>
+
+<h2>7. Gravity 审计（codex 挑战 → 已证 doc 原稿过时）<span class="en">Gravity audit</span></h2>
+<div class="ok">
+<b>codex 质疑"proj_grav 恒零 bug"过时 —— 实测确认 codex 对。</b>
+<ul>
+<li>resampled3 训练数据 <code>observation.projected_gravity</code> = <b>真值</b>（episode0 首帧 [0.076, 0.025, −0.997]，min/max −1.0/0.076，非零）。builder <span class="f">sonic_vla_resample_build.py:118</span> 已 <code>compute_projected_gravity(q[t])</code>。</li>
+<li>部署侧 <code>VLA_ZERO_GRAVITY</code> 在<b>任何 launcher 都没设</b> → injector 发真值（<span class="f">vla_live_injector.py:399</span>），与训练<b>一致，无失配</b>。</li>
+<li>injector line 400 注释"training dataset's projected_gravity is identically [0,0,0]"是<b>旧数据集的过时残留</b>，应删（非功能 bug，但误导）。</li>
+</ul>
+→ "填 gravity = 高 ROI" 已是既成事实；gravity 通道（编码 roll/pitch 倾斜）<b>已在用</b>。注意它仍不测 yaw、不解 static onset。
+</div>
+
+<h2>8. 修订后的执行顺序 <span class="en">Revised order (post-review)</span></h2>
+<ol>
+<li><b>[已做] 审计 gravity + state 关节序</b>：gravity 真值已对齐；state 序需在 B5 一并核。</li>
+<li><b>re-anchor baseline</b>（deploy）：切 fragile 动作前校验 pose 距离/gravity，把 robot 带回已演示站立姿再发 prompt。最高 ROI、零训练风险。</li>
+<li><b>Tier-3 onset priming</b>（deploy）：注入短的、动作专属、验证安全的 onset 前缀 token，再交还 VLA。冷切换的针对性疗法。</li>
+<li><b>velocity + T=2 history 重训</b>（本方案③）：处理 B1–B5 后做。<b>T=2 先于 T=3</b>（60s 高相关数据，T=3 主要增记忆/过拟合）。验收 = settle-switch + drift 复现，非 OL-MSE。</li>
+</ol>
+
+<p style="margin-top:2em;color:#64748b;font-size:.85rem">关联记忆：<code>sonic-closeloop-freeze-rootcause</code>(Tier-1✅/Tier-2 CFG负/本方案+codex评审)、<code>sonic-vla-critique-roadmap</code>([已证]history 必选)。评审者：codex gpt-5.5（2026-06-25）。</p>
+
+</body>
+</html>

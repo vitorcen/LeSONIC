@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SONIC VLA 鲁棒性方案 v2(双评审修订)/ Robustness Plan</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{background:#fff;color:#1a1a1a;font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+     line-height:1.65;max-width:1000px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:1.7rem;border-bottom:3px solid #2563eb;padding-bottom:10px;color:#0f172a}
+h2{font-size:1.32rem;margin-top:2.1em;border-left:5px solid #2563eb;padding-left:12px;color:#0f172a}
+h3{font-size:1.07rem;margin-top:1.4em;color:#1e3a5f}
+.en{color:#5b6b7a;font-style:italic;font-size:.92em}
+.tldr{background:#eff6ff;color:#1a1a1a;border:1px solid #bfdbfe;border-radius:10px;padding:16px 20px;margin:18px 0}
+.warn{background:#fef2f2;color:#1a1a1a;border:1px solid #fecaca;border-radius:8px;padding:12px 16px;margin:14px 0}
+.ok{background:#f0fdf4;color:#1a1a1a;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin:14px 0}
+.note{background:#fffbeb;color:#1a1a1a;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin:14px 0}
+.rev{background:#faf5ff;color:#1a1a1a;border:1px solid #e9d5ff;border-radius:8px;padding:12px 16px;margin:14px 0}
+table{border-collapse:collapse;width:100%;margin:14px 0;background:#fff;color:#1a1a1a;font-size:.92rem}
+th,td{border:1px solid #d1d5db;padding:7px 10px;text-align:left;vertical-align:top}
+th{background:#f1f5f9;color:#0f172a}
+code{background:#f3f4f6;color:#b91c1c;padding:1px 5px;border-radius:4px;font-size:.9em;font-family:"SF Mono",Menlo,Consolas,monospace}
+pre{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;font-size:.85rem;font-family:"SF Mono",Menlo,Consolas,monospace;line-height:1.5}
+pre code{background:none;color:#e2e8f0;padding:0}
+.fig{margin:18px 0;text-align:center}
+.tag{display:inline-block;border-radius:4px;padding:1px 8px;font-size:.78em;margin-right:4px;font-weight:700}
+.p0{background:#dcfce7;color:#166534}.p1{background:#dbeafe;color:#1e40af}.p2{background:#f1f5f9;color:#475569}
+.kill{background:#fee2e2;color:#991b1b}
+.priority{font-weight:700;color:#b91c1c}
+hr{border:none;border-top:1px solid #e5e7eb;margin:2em 0}
+small{color:#64748b}
+</style>
+</head>
+<body>
+
+<h1>SONIC VLA 鲁棒性方案 v2<br><span class="en" style="font-size:1rem">Make most realistic deploy poses prompt-triggerable — revised after codex + glm dual review</span></h1>
+
+<div class="tldr">
+<strong>TL;DR(v2,被两个评审推翻重写).</strong> v1 想"重训策略让随机初始姿都能触发",
+被 codex(gpt-5.5)+ glm-5.2 一致打回:<strong>那是在用重训补偿一个复位 bug,且判据/数据策略多处错误。</strong>
+<br><br>
+<strong>新顺序:</strong>
+<span class="tag p0">Phase 0 零重训先验</span> 先做两件事 ——
+<strong>①WBC 隔离 ablation</strong>(冻策略喂 GT token,看 WBC 跟不跟得住;跟不住=重训策略白搭)+
+<strong>②把部署复位姿锁回训练标称姿</strong>(0.54rad 偏差是 reset/init 问题,不是策略问题)。<strong>多半到这就 close ticket。</strong>
+<br>
+<span class="tag p1">Phase 1 真要重训</span> 才上精简配方:<strong>输入 proprio 噪声增广 + LoRA(冻骨干)+ 零初始化 history adapter</strong>。
+<span class="priority">丢弃 RSI 切片(扩错维度)、丢弃 DART/DAgger(off-tube 无 ground-truth token,不可行)。</span>
+<br>
+<strong>判据:</strong>不用 <code>drift&gt;1.5</code>(摔也高 drift=假阳性);用<strong>任务级闭环判据</strong>(kick 脚高/jump 质心升/walk 位移)+ 轨迹方向对齐。
+</div>
+
+<h2>1. 问题回顾(诊断已坐实)<span class="en">Diagnosis recap</span></h2>
+<p>多轮单变量受控实验(checkpoint-8000,本机 4090)结论:闭环里 kick/jump/walk 站立不动,squat/dance/lunge/macarena 正常。
+逐一证伪:动量说、模型预测能力、重力 OOD、图像、单关节组 bug。证实:<strong>prompt 有效选动作</strong>;
+真因 = <strong>单帧无历史策略对脆弱动作"训练轨迹细管子"零容差</strong>——部署复位姿整体偏 ~0.54rad(分散全关节、无单点 bug)+ 闭环 WBC 跟踪持续漂移 → 累计 OOD → 模型把 40 步预测塌成"保持当前姿"的冻结 chunk。完整证据见 <code>doc/sonic_vla_closeloop_validation.html</code>。</p>
+
+<div class="fig">
+<svg viewBox="0 0 900 200" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif" font-size="13">
+  <rect x="0" y="0" width="900" height="200" fill="#fff"/>
+  <text x="450" y="22" text-anchor="middle" font-size="14" font-weight="700" fill="#0f172a">细管子 vs 粗管子:闭环容差 / tube width = closed-loop tolerance</text>
+  <text x="215" y="52" text-anchor="middle" font-weight="700" fill="#15803d">squat/dance(粗,容差大)</text>
+  <path d="M40,120 C120,85 320,85 395,120" fill="none" stroke="#86efac" stroke-width="42"/>
+  <circle cx="56" cy="118" r="6" fill="#dc2626"/>
+  <text x="215" y="170" text-anchor="middle" fill="#166534" font-size="12">复位偏差被吸收 → chunk 演化 → 执行 ✅</text>
+  <text x="690" y="52" text-anchor="middle" font-weight="700" fill="#b91c1c">kick/jump/walk(细,零容差)</text>
+  <path d="M510,120 C590,95 790,95 865,120" fill="none" stroke="#fecaca" stroke-width="12"/>
+  <circle cx="528" cy="138" r="6" fill="#dc2626"/>
+  <text x="690" y="170" text-anchor="middle" fill="#991b1b" font-size="12">偏出管 → 冻结 chunk → 站立不动 ❌</text>
+  <line x1="452" y1="62" x2="452" y2="178" stroke="#cbd5e1" stroke-dasharray="4 4"/>
+</svg>
+</div>
+
+<h2>2. 评审共识与 v1→v2 修订 <span class="en">What the two reviewers killed</span></h2>
+<div class="rev">codex(gpt-5.5)与 glm-5.2 <strong>独立评审、高度收敛</strong>,集中火力在以下几点。v2 据此重写。</div>
+<table>
+<thead><tr><th>v1 的错</th><th>两评审的判定</th><th>v2 怎么改</th></tr></thead>
+<tbody>
+<tr><td>直接重训策略补偿 0.54rad 偏差</td><td>🔴 <strong>修错对象</strong>:0.54 是 reset/init 问题,先零成本修复位再谈重训</td><td>新增 <strong>Phase 0</strong>(零重训先验),重训降为后备</td></tr>
+<tr><td>没做 WBC 隔离</td><td>🔴 <strong>地基没验</strong>:若 WBC 连 GT token 都跟不住,重训策略白干</td><td>Phase 0 第一步 = WBC 隔离 ablation</td></tr>
+<tr><td>RSI 切片当核心</td><td>🔴 <strong>扩错维度</strong>:RSI 扩"沿轨迹相位",0.54 偏差在"正交方向";该用输入噪声</td><td>RSI 降级,<strong>输入 proprio 噪声增广</strong>顶上</td></tr>
+<tr><td>DART/DAgger 标 off-tube token</td><td>🔴 <strong>不可行</strong>:off-tube 无 ground-truth token,恢复≠重放,WBC 在 action 空间不可反解</td><td><strong>删除</strong>,仅保留可行内核=输入噪声</td></tr>
+<tr><td>全量 finetune DiT(7-ep)</td><td>🔴 <strong>必然过拟合</strong>;漏了 LoRA</td><td><strong>LoRA(rank 8–16)+ 冻骨干</strong>为主</td></tr>
+<tr><td>history first-layer "校验形状适配"</td><td>🟡 太含糊;插值会毁预训练</td><td><strong>零初始化 residual adapter</strong>(step-0 ≡ 旧 ckpt)</td></tr>
+<tr><td>basin = <code>drift&gt;1.5</code></td><td>🔴 <strong>假阳性</strong>:摔=高 drift、无方向、乱动也算</td><td>换<strong>任务级闭环判据 + 轨迹方向对齐</strong></td></tr>
+<tr><td>开环 MSE ≤0.003 当 guardrail</td><td>🔴 <strong>无意义</strong>:MSE 0.0011 时闭环已失败,保护它=没护栏</td><td>删除该上限,<strong>闭环 basin 是唯一验收门</strong></td></tr>
+<tr><td>5 干预齐上</td><td>🔴 无法归因</td><td>新增 <strong>ablation 计划</strong>(逐项加)</td></tr>
+<tr><td>"随机初始姿 80%"</td><td>🟡 vanity:部署不会从随机姿发 kick;且 kick/walk basin 可能<strong>物理不可达</strong></td><td>目标改"现实部署姿分布",按动作分级</td></tr>
+</tbody>
+</table>
+
+<h2>3. 目标的可量化定义(修订)<span class="en">Measurable goal, revised</span></h2>
+<p>不再用 drift,也不再用"随机姿"。目标 = <strong>从现实部署会遇到的初始姿分布,prompt 触发任务级成功</strong>。</p>
+<table>
+<thead><tr><th>要素</th><th>v2 定义</th></tr></thead>
+<tbody>
+<tr><td>初始姿分布</td><td>三桶分别报告:<strong>标称姿</strong>(reset 名义站姿)/ <strong>轻扰</strong> / <strong>重扰</strong>;扰动从<strong>实测 reset+WBC-drift 协方差</strong>采样(非独立均匀 ±0.15,那会造非自然姿),钉死 σ 与协议</td></tr>
+<tr><td><strong>触发成功(任务级,主门)</strong></td><td>闭环 WBC rollout 同时满足:<strong>安全</strong>(不摔/root 高度/tilt)+ <strong>触发延迟</strong>(prompt 后 ≤1s 进入)+ <strong>动作专属事件</strong>(kick=摆动脚最大高度&支撑脚保持;jump=质心升+落地;walk=连续交替触地+前向位移;squat=骨盆下沉再起)+ <strong>选择性</strong>(错 prompt 不触发该判据)+ <strong>持续/完成</strong></td></tr>
+<tr><td>轨迹相似(辅)</td><td>预测 chunk 对该动作 GT 做 phase-invariant DTW / 关节轨迹 PCA 方向对齐;drift 仅作粗筛冻结检测,<strong>绝不单独当门</strong></td></tr>
+<tr><td>样本量</td><td>每动作 ≥100 初始姿(drift 粗筛可大,任务级闭环子集 N≈5–10/动作)</td></tr>
+<tr><td>分级目标</td><td>squat/dance/lunge/macarena 维持;kick/jump 较硬;<strong>walk(极限环)最硬,接受 &lt;80%</strong>。区分"策略不行"vs"物理不可达"</td></tr>
+</tbody>
+</table>
+
+<h2>4. <span class="tag p0">Phase 0</span> 零重训先验证(最高优先)<span class="en">Zero-retrain first</span></h2>
+<div class="ok"><strong>两评审一致:动工重训前必须先做这两步,否则可能全程在修错的那一段。多半到这里问题就解决/边界就清楚了。</strong></div>
+
+<h3>0.1 WBC 隔离 ablation —— 地基</h3>
+<p>冻当前策略,从同一复位姿<strong>喂 GT kick token</strong>(开环 dump),看 WBC 能不能跟出 kick。</p>
+<ul>
+<li>能 → WBC 没问题,瓶颈在策略生成,Phase 0.2 / Phase 1 有意义。</li>
+<li>不能 → <strong>WBC 才是天花板,重训策略白干</strong>,应改 WBC / reset controller 或限制目标 basin。</li>
+</ul>
+<small>脚手架:<code>BOOTSTRAP_STEPS=&lt;full&gt; bash scripts/gear_sonic_live_demo.sh kick</code>(全程喂 dump token)对照纯 live。</small>
+
+<h3>0.2 复位锁回训练分布 + 部署旋钮扫</h3>
+<p>0.54rad 是 reset/init 偏差。固定现 ckpt,把部署起姿锁回训练标称姿(把偏差压到 &lt;0.1rad),再扫这些<strong>不重训</strong>旋钮:</p>
+<table>
+<thead><tr><th>旋钮</th><th>做法</th></tr></thead>
+<tbody>
+<tr><td>精确复位</td><td>env reset 时把机器人关节设成数据集首帧姿(已证:首帧喂 GT proprio → kick drift 0.31→2.76、dpose→3.12 真踢)</td></tr>
+<tr><td>bootstrap 长度</td><td>0 / 20 / 40 / 80 扫,找"能起飞且最少回放"的点(已证 80→live 可持续)</td></tr>
+<tr><td>execution horizon / RTC</td><td>每次 query 消费的 token 步数(reactivity vs 平滑);real-time chunking</td></tr>
+</tbody>
+</table>
+<div class="note">若 0.2 让 kick/jump 起得来 → <strong>整个重训计划可能不必要,close ticket。</strong>walk(极限环)即便复位正确也可能仍需 Phase 1。</div>
+
+<h2>5. <span class="tag p1">Phase 1</span> 重训配方(精简,仅当 Phase 0 不够)<span class="en">Slim retrain recipe</span></h2>
+
+<h3><span class="tag p1">主</span> A. 输入 proprio 噪声增广 <span class="en">Input-noise augmentation = the feasible DART kernel</span></h3>
+<p><strong>为什么:</strong> 0.54 偏差活在轨迹"正交方向";给训练样本的 proprio 输入加噪声(标签不变)= 把"管子周围一圈"也变成训练分布 = 扩 basin。这是 DART 的可行内核,不需要任何新标注,也不需要 RSI 切片。</p>
+<pre><code># 训练时对 observation.state 加噪(从实测 reset/drift 协方差采样,非独立均匀):
+state_noisy = state + sample_from(Σ_deploy)     # σ≈0.05–0.1rad 量级,含少量尾部
+# 标签(未来40 token)不变。history dropout 同理(见 B)。</code></pre>
+
+<h3><span class="tag p1">主</span> B. LoRA(冻骨干)+ 零初始化 history adapter <span class="en">LoRA + zero-init history</span></h3>
+<ul>
+<li><strong>LoRA on DiT head(rank 8–16),冻 VLM + 冻 DiT 主干:</strong> 7-ep 小数据标配,参数砍两个数量级、自带正则。LoRA 的 B 矩阵天然零初始化 → 热启动不退化。</li>
+<li><strong>历史观测改 zero-init residual adapter(不要插值):</strong> 若加 <code>delta_indices=[-1,0]</code>,<code>-1</code> 帧走独立小 MLP,<strong>末层权重置 0</strong> → step-0 数值 ≡ 旧 ckpt,梯度自己慢慢学用历史。episode 首帧 <code>q_{t-1}=q_t</code> + <code>history_valid=0</code> 并在训练模拟。</li>
+<li><strong>history dropout(p≈0.5):</strong> 随机丢 <code>-1</code> 帧,强迫不全靠历史,渐进启用。</li>
+<li><strong>先只 state 历史,不加图像历史</strong>(改冻 VLM 输入分布、收益不明)。</li>
+</ul>
+<div class="warn"><strong>训练纪律:</strong> clean:noisy = 1:1 replay 防遗忘;loss 按动作均衡(kick 仅 165 帧,别让 macarena 1375 帧主导);
+<strong>train/val 不能随机帧切分</strong>(同轨迹相邻帧泄漏)→ 按扰动 seed/类型/幅度分层隔离。</div>
+
+<h3><span class="tag p2">P3 后备</span> C. 观测加速度 / 扩数据</h3>
+<p>先修 <code>projected_gravity</code> 数据恒零 bug(重训记录真实值);base 线/角速度 + 关节速度比纯历史更直接暴露动力学。每动作多采 3–5 条独立 demo 才能验风格/起姿泛化。优先级低于 A/B。</p>
+
+<h2>6. Ablation 计划(否则无法归因)<span class="en">Ablation</span></h2>
+<ol>
+<li><strong>Phase 0.2 only</strong>(精确复位+bootstrap 扫,不重训)→ 基线,可能已达标。</li>
+<li><strong>+ A</strong>(输入噪声,LoRA)→ 看 basin 触发率增量。</li>
+<li><strong>+ B</strong>(零初始化 history adapter + dropout)→ 增量。</li>
+<li><strong>+ C</strong>(速度/扩数据)→ 仅当 1–3 不够。</li>
+</ol>
+<p>每档用第 3 节任务级判据评,且<strong>原 4 个 work 动作闭环成功率下降 ≤5 个百分点</strong>为硬约束。</p>
+
+<h2>7. 风险(评审补全)<span class="en">Risks</span></h2>
+<table>
+<thead><tr><th>风险</th><th>缓解</th></tr></thead>
+<tbody>
+<tr><td><strong>修错对象</strong>(策略 vs WBC)</td><td>Phase 0.1 WBC 隔离先验,没验不开工</td></tr>
+<tr><td><strong>kick/walk basin 物理不可达</strong>(从多数姿得先"恢复到可踢姿"=另一个动作)</td><td>目标按动作分级,区分策略不行 vs 物理不行</td></tr>
+<tr><td><strong>拆掉学到的安全 fallback</strong>:冻结可能是 OOD 时的隐式安全行为,强行吐动作 → 自信错误 → 摔</td><td>安全判据(不摔)优先于触发;监控跌倒率不升</td></tr>
+<tr><td><strong>prompt 选择性退化</strong>:proprio 方差↑ → prompt 相对方差↓</td><td>history dropout + 矩阵监控非对角;必要时加 prompt 通道容量</td></tr>
+<tr><td>7-ep 小数据 + 可训容量 = 过拟合</td><td>LoRA + 冻骨干 + 1:1 clean replay + 分层 split</td></tr>
+</tbody>
+</table>
+
+<div class="ok"><strong>一句话:</strong> 先 Phase 0(WBC 隔离 + 精确复位)——多半够;真要重训,<strong>输入噪声 + LoRA + 零初始化 history</strong> 三件就够,RSI 切片/DART 删掉;判据换任务级闭环。
+这与既有 roadmap "先 loss→history→数据" 一致,但<strong>顺序前置了"先把复位修对"</strong>,并把 history 落成零初始化 adapter 这一可执行形态。</div>
+
+<hr>
+<p><small>诊断依据:<code>doc/sonic_vla_closeloop_validation.html</code> · <code>.memory/sonic-vla-critique-roadmap</code>。
+v2 由 codex(gpt-5.5)+ opencode glm-5.2 双独立评审后重写。评审原文:<code>/tmp/rev_codex.txt</code> · <code>/tmp/rev_glm2.txt</code>。2026-06-24。</small></p>
+
+</body>
+</html>

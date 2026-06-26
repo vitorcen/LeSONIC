@@ -1,9 +1,9 @@
 diff --git a/gear_sonic/data/vla_token_injector.py b/gear_sonic/data/vla_token_injector.py
 new file mode 100644
-index 0000000..4e7533d
+index 0000000..ee6e65c
 --- /dev/null
 +++ b/gear_sonic/data/vla_token_injector.py
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,287 @@
 +"""VLA token injector — eval-callback that DRIVES SONIC with GR00T's predicted tokens.
 +
 +Counterpart to vla_token_recorder: instead of READING the actor's token at decode, it
@@ -35,9 +35,10 @@ index 0000000..4e7533d
 +    logger = logging.getLogger(__name__)
 +
 +# P0 #1: the dumped GR00T tokens are continuous flow-matching predictions, but the SONIC
-+# decoder was trained on the FSQ-quantized (on-grid) token — 17 levels k/16, k in [-8, 8],
-+# range [-0.5, 0.5]. Snap each predicted token onto that grid before injection. Disable
-+# with SONIC_SNAP_GRID=0 to A/B against the raw continuous token. (Mirrors vla_live_injector.)
++# decoder was trained on the FSQ-quantized (on-grid) token — step 1/16, num_fsq_levels=32.
++# The dataset spans k/16 for k in [-13, 13] = [-0.8125, 0.8125]. BUG FIX 2026-06-25: the old
++# clamp [-0.5, 0.5] truncated every legitimate |tok|>0.5 (motion-peak amplitude); widen to the
++# 32-level codebook bound ±1.0. Disable with SONIC_SNAP_GRID=0. (Mirrors vla_live_injector.)
 +_SNAP_FSQ = os.environ.get("SONIC_SNAP_GRID", "1") != "0"
 +
 +
@@ -61,6 +62,14 @@ index 0000000..4e7533d
 +        self._step = 0
 +        self._orig_decode = None
 +        self._installed = False
++        self._scene = None         # resolved lazily for the VLA_DIAG_TRACE basin probe
++        self._tstep = 0
++        # VLA_RECORD_DIR: record (injected-token, proprio, ego_rgb) per step into a VlaTokenRecorder-
++        # format npz so injected transition rollouts become GR00T training data (data-aug route).
++        self._cap_token = None
++        self._rec_buf = None
++        self._rec_saved = False
++        self._rec_warned_cam = False
 +
 +    def _load_tokens(self) -> None:
 +        paths = [p for p in self.token_npz.split(",") if p]
@@ -69,7 +78,7 @@ index 0000000..4e7533d
 +            d = np.load(p, allow_pickle=True)
 +            t = np.asarray(d["motion_token"], dtype=np.float32)
 +            if _SNAP_FSQ:
-+                t = np.clip(np.round(t * 16.0) / 16.0, -0.5, 0.5).astype(np.float32)
++                t = np.clip(np.round(t * 16.0) / 16.0, -1.0, 1.0).astype(np.float32)
 +            self._tokens_list.append(t)
 +            logger.info(
 +                f"[vla_injector] env slot {len(self._tokens_list)-1}: {t.shape} from {p} "
@@ -96,6 +105,9 @@ index 0000000..4e7533d
 +                        toks[idx], device=ref.device, dtype=ref.dtype
 +                    ).reshape(rep[e].shape)
 +                decode_input_dict = {**decode_input_dict, "token_flattened": rep}
++                # remember exactly what we injected for env 0 (the recorded slot) so the training
++                # label is the INJECTED token, perfectly aligned to the obs it produces.
++                self._cap_token = rep[0].detach().cpu().numpy().reshape(-1).astype("float32")
 +                self._step += 1
 +            return orig(decoder_name, decode_input_dict, token_mask=token_mask)
 +
@@ -178,10 +190,99 @@ index 0000000..4e7533d
 +        except Exception as exc:  # noqa: BLE001
 +            logger.warning(f"[vla_injector] tint_env0_green failed: {exc}")
 +
++    @staticmethod
++    def _resolve_scene(env):
++        for getter in (lambda e: e.env.scene, lambda e: e.scene, lambda e: e.env.unwrapped.scene):
++            try:
++                scene = getter(env)
++                _ = scene["robot"]
++                return scene
++            except Exception:  # noqa: BLE001
++                continue
++        return None
++
++    def _save_record(self, rec_dir) -> None:
++        """Dump the recorded injected-rollout in VlaTokenRecorder npz format (converter-compatible)."""
++        import os
++        from pathlib import Path
++        if self._rec_saved or not self._rec_buf or not self._rec_buf["motion_token"]:
++            return
++        key = os.environ.get("VLA_RECORD_KEY", "aug")
++        tag = os.environ.get("VLA_RECORD_TAG", "000")
++        prompt = os.environ.get("VLA_RECORD_PROMPT", "")
++        out_dir = Path(rec_dir) / key; out_dir.mkdir(parents=True, exist_ok=True)
++        out = out_dir / f"episode_{tag}.npz"
++        payload = {"motion_token": np.stack(self._rec_buf["motion_token"]),
++                   "joint_pos": np.stack(self._rec_buf["joint_pos"]),
++                   "root_quat": np.stack(self._rec_buf["root_quat"]),
++                   "fps": np.int64(50), "prompt": str(prompt), "motion_key": str(key)}
++        if self._rec_buf["ego_rgb"]:
++            payload["ego_rgb"] = np.stack(self._rec_buf["ego_rgb"])
++        np.savez_compressed(out, **payload)
++        self._rec_saved = True
++        cam = payload["ego_rgb"].shape if "ego_rgb" in payload else "NO-CAM"
++        logger.info(f"[vla_injector][REC] SAVED {out} T={payload['motion_token'].shape[0]} ego_rgb={cam}")
++
 +    def eval_step(self, env, results) -> bool:
 +        if self.tint_env0_green and not self._tinted:
 +            self._tint_teacher()
 +            self._tinted = True
++        # WBC-isolation trace (gated by VLA_DIAG_TRACE=<out.npz>): record per-step kinematics so a
++        # GT-token replay can be scored OFFLINE (swing-foot peak height, root z/xy, joint traj) — the
++        # basin probe ("can the WBC launch this motion from state X?"). Mirrors vla_live_injector.
++        tp = os.environ.get("VLA_DIAG_TRACE")
++        if tp:
++            try:
++                if self._scene is None:
++                    self._scene = self._resolve_scene(env)
++                robot = self._scene["robot"]; i = 0
++                if not hasattr(self, "_trace"):
++                    self._trace = {"t": [], "seg": [], "root": [], "joints": [], "bodyz": []}
++                    self._trace_names = [str(n) for n in getattr(robot, "body_names", [])]
++                    logger.info(f"[vla_injector][TRACE] -> {tp}  body_names={self._trace_names}")
++                self._trace["t"].append(int(self._tstep))
++                self._trace["seg"].append(int(self._step))
++                self._trace["root"].append(robot.data.root_pos_w[i].detach().cpu().numpy().copy())
++                self._trace["joints"].append(robot.data.joint_pos[i].detach().cpu().numpy().copy())
++                self._trace["bodyz"].append(robot.data.body_pos_w[i, :, 2].detach().cpu().numpy().copy())
++                self._tstep += 1
++                if self._tstep % 50 == 0:
++                    np.savez(tp, t=np.array(self._trace["t"]), seg=np.array(self._trace["seg"]),
++                             root=np.array(self._trace["root"]), joints=np.array(self._trace["joints"]),
++                             bodyz=np.array(self._trace["bodyz"]), body_names=np.array(self._trace_names))
++            except Exception as exc:  # noqa: BLE001
++                logger.warning(f"[vla_injector][TRACE] {exc!r}")
++
++        # VLA_RECORD_DIR: turn this injected rollout into GR00T training data. Record the INJECTED
++        # token (label) + ego_rgb + proprio per step, in VlaTokenRecorder npz format so the existing
++        # sonic_vla_npz_to_lerobot.py converter is reused unchanged. Stops + exits at VLA_RECORD_STEPS.
++        rd = os.environ.get("VLA_RECORD_DIR")
++        if rd and not self._rec_saved:
++            try:
++                if self._scene is None:
++                    self._scene = self._resolve_scene(env)
++                warm = int(os.environ.get("VLA_RECORD_WARMUP", "5"))
++                nsteps = int(os.environ.get("VLA_RECORD_STEPS", "0"))
++                if self._rec_buf is None:
++                    self._rec_buf = {"motion_token": [], "joint_pos": [], "root_quat": [], "ego_rgb": []}
++                    self._rec_t = 0
++                self._rec_t += 1
++                if self._rec_t > warm and self._cap_token is not None:
++                    robot = self._scene["robot"]; i = 0
++                    self._rec_buf["motion_token"].append(self._cap_token.copy())
++                    self._rec_buf["joint_pos"].append(robot.data.joint_pos[i].detach().cpu().numpy().astype("float32"))
++                    self._rec_buf["root_quat"].append(robot.data.root_quat_w[i].detach().cpu().numpy().astype("float32"))
++                    try:
++                        cam = self._scene[os.environ.get("VLA_RECORD_CAM", "ego_camera")]
++                        self._rec_buf["ego_rgb"].append(cam.data.output["rgb"][i].detach().cpu().numpy()[..., :3].astype("uint8"))
++                    except Exception as exc:  # noqa: BLE001
++                        if not self._rec_warned_cam:
++                            logger.warning(f"[vla_injector][REC] no camera: {exc}"); self._rec_warned_cam = True
++                    if nsteps > 0 and len(self._rec_buf["motion_token"]) >= nsteps:
++                        self._save_record(rd); return True
++            except Exception as exc:  # noqa: BLE001
++                logger.warning(f"[vla_injector][REC] {exc!r}")
++
 +        # results = (obs, rewards, dones, infos); on episode reset, restart token playback.
 +        try:
 +            dones = results[2]

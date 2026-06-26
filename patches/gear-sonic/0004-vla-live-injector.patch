@@ -1,9 +1,9 @@
 diff --git a/gear_sonic/data/vla_live_injector.py b/gear_sonic/data/vla_live_injector.py
 new file mode 100644
-index 0000000..0dadc3a
+index 0000000..1c4963e
 --- /dev/null
 +++ b/gear_sonic/data/vla_live_injector.py
-@@ -0,0 +1,512 @@
+@@ -0,0 +1,687 @@
 +"""VLA LIVE injector — close the loop: GR00T-in-the-loop drives SONIC's WBC.
 +
 +Counterpart to vla_token_injector (which replays an OFFLINE token npz). This one queries a
@@ -68,20 +68,23 @@ index 0000000..0dadc3a
 +    logger = logging.getLogger(__name__)
 +
 +# P0 #1: GR00T's flow-matching head regresses the 64-d motion_token as a *continuous*
-+# target, but the token is an FSQ code living on a discrete grid — 17 levels k/16 for
-+# k in [-8, 8], i.e. {-0.5, -0.4375, ..., 0.5} (verified against the recorded dataset),
-+# and SONIC's decoder only ever saw on-grid tokens. Snap GR00T's prediction back onto
-+# that grid before decode: on-distribution it's near-identity, off-distribution it pulls
-+# the prediction onto the manifold the decoder understands. Gate with SONIC_SNAP_GRID=0
-+# to A/B against the raw continuous token.
++# target, but the token is an FSQ code living on a discrete grid — step 1/16 (0.0625),
++# num_fsq_levels=32 (per gear_sonic/config/.../all_mlp_v1.yaml). The recorded dataset
++# spans k/16 for k in [-13, 13] = [-0.8125, +0.8125] (measured on sonic_vla_lerobot_resampled3;
++# the extreme levels just don't appear in our motions). BUG FIX 2026-06-25: the old clamp
++# was [-0.5, 0.5] (k in [-8, 8]) — it TRUNCATED every legitimate code with |tok|>0.5, i.e.
++# the high-amplitude tokens at motion peaks (e.g. a kick's leg extension reaches 0.8125),
++# decapitating the motion. Widen to the real 32-level codebook bound (|k|<=16 -> ±1.0);
++# round() already snaps to the 1/16 grid so clamp only rejects blown-up OOD predictions.
++# Gate with SONIC_SNAP_GRID=0 to A/B against the raw continuous token.
 +_SNAP_FSQ = os.environ.get("SONIC_SNAP_GRID", "1") != "0"
 +
 +
 +def _snap_fsq_grid(tok):
-+    """Round a torch token to the nearest FSQ grid value and clamp to [-0.5, 0.5]."""
++    """Round a torch token to the nearest FSQ grid value and clamp to the 32-level codebook."""
 +    import torch
 +
-+    return torch.clamp(torch.round(tok * 16.0) / 16.0, -0.5, 0.5)
++    return torch.clamp(torch.round(tok * 16.0) / 16.0, -1.0, 1.0)
 +
 +
 +# observation.state slices, from datasets/sonic_vla_lerobot/meta/modality.json.
@@ -211,6 +214,7 @@ index 0000000..0dadc3a
 +        self._global_t = 0            # control steps since start (drives the timeline)
 +        self._last_src = None         # last token injected (for settle "freeze" without neutral)
 +        self._stand_token = None      # captured reset-pose token; injected (frozen) while idle
++        self._idle_loop = None        # natural standing micro-motion loop (VLA_IDLE_NPZ); None until first idle
 +        self._n_query = 0
 +        self._warned_cam = False
 +
@@ -299,10 +303,16 @@ index 0000000..0dadc3a
 +        )
 +
 +    def _is_idle(self) -> bool:
-+        """Idle = hold the standing reset pose, never query the model. The launch seeds the
-+        control file with 'stand' so the robot just stands until the user picks a motion."""
-+        return self.prompt.strip().lower() in (
-+            "", "stand", "idle", "none", "stand still", "站立", "站着")
++        """Idle = hold the standing reset pose, never query the model (inject the captured stand token).
++
++        VLA_STAND_MODEL=1: "stand" is now a TRAINED motion (macarena standing front) — route it
++        THROUGH the model so idle is natural standing micro-motion (not a dead-frozen zero-velocity
++        token). This keeps the robot out of the deepest freeze basin, so switching from idle to a
++        fragile motion (kick/walk/jump) can initiate. Only empty/none/idle stay sentinel-held."""
++        p = self.prompt.strip().lower()
++        if os.environ.get("VLA_STAND_MODEL"):
++            return p in ("", "none", "idle")
++        return p in ("", "stand", "idle", "none", "stand still", "站立", "站着")
 +
 +    def _pick_source(self):
 +        """Choose the token to inject this step from the current segment's windows.
@@ -312,7 +322,21 @@ index 0000000..0dadc3a
 +        import torch  # noqa: F401  (ensures torch is importable in this env)
 +
 +        if self._is_idle():
-+            return self._stand_token                     # idle: hold reset standing pose, no motion
++            # idle: replay a captured NATURAL standing micro-motion loop (real mocap stand-sway from
++            # a clip's settle segment) so the robot keeps a small nonzero velocity instead of a dead
++            # zero-velocity hold. This breaks the cold-standing freeze attractor: switching to a
++            # fragile motion (kick/walk/jump) from this dynamic idle initiates, whereas from a dead
++            # hold it collapses. VLA_IDLE_NPZ overrides the loop; falls back to the frozen pose.
++            if self._idle_loop is None and os.environ.get("VLA_IDLE_NPZ"):
++                try:
++                    self._idle_loop = np.load(os.environ["VLA_IDLE_NPZ"])["motion_token"].astype(np.float32)
++                    logger.info(f"[vla_live] idle natural-sway loop loaded: {self._idle_loop.shape}")
++                except Exception as exc:  # noqa: BLE001
++                    logger.warning(f"[vla_live] idle loop load failed ({exc!r}); holding stand pose")
++                    self._idle_loop = False
++            if self._idle_loop is not None and self._idle_loop is not False and self._stand_token is not None:
++                return self._idle_loop[self._global_t % len(self._idle_loop)]
++            return self._stand_token                     # fallback: hold reset standing pose
 +        _, lt, seg = self._current_segment()             # lt = step within this segment
 +        settle, boot_n = seg["settle_steps"], seg["bootstrap_steps"]
 +        src = None
@@ -357,8 +381,72 @@ index 0000000..0dadc3a
 +                continue
 +        raise RuntimeError("[vla_live] could not resolve env scene")
 +
++    # --- re-anchor: deploy-side onset fix (codex-ranked #1, no retrain) ---------------
++    # The freeze is an OOD-proprio problem: after the robot drifts (root/pose wander off the
++    # narrow in-distribution standing band), switching to a fragile motion (kick/jump/walk)
++    # collapses to a hold chunk. The user found a viewer R-reset (teleport to the reference
++    # stand) restores the kick. This reproduces that programmatically: continuously snapshot a
++    # CLEAN in-dist stand pose (held near the origin), and on a drifted switch to a fragile
++    # motion write it back so the VLA sees an in-distribution proprio again. Gate: VLA_REANCHOR=1.
++    _FRAGILE = ("kick", "jump", "walk")
++
++    def _capture_anchor(self) -> None:
++        """Snapshot the latest clean standing pose (idle/stand prompt, root near origin)."""
++        if not os.environ.get("VLA_REANCHOR") or self._scene is None or self._global_t <= 60:
++            return
++        p = self.prompt.strip().lower()
++        if not (self._is_idle() or p in ("stand", "stand still", "站立", "站着")):
++            return
++        try:
++            import torch  # noqa: F401
++            robot = self._scene["robot"]; i = self.env_index
++            rxy = robot.data.root_pos_w[i, :2].detach()
++            if float((rxy[0] ** 2 + rxy[1] ** 2) ** 0.5) < 0.25:    # near origin = in-dist stand
++                self._anchor_qpos = robot.data.joint_pos[i].detach().clone()
++                self._anchor_root = robot.data.root_state_w[i].detach().clone()
++        except Exception:  # noqa: BLE001
++            pass
++
++    def _maybe_reanchor(self, new_prompt: str) -> None:
++        """On a switch to a fragile motion, if the robot has drifted, restore the clean stand."""
++        if not os.environ.get("VLA_REANCHOR") or self._scene is None:
++            return
++        pl = new_prompt.strip().lower()
++        if not any(f in pl for f in self._FRAGILE):
++            return
++        anc = getattr(self, "_anchor_qpos", None)
++        if anc is None:
++            logger.info("[vla_live] re-anchor: no clean stand captured yet, skip")
++            return
++        try:
++            import torch
++            robot = self._scene["robot"]; i = self.env_index
++            q = robot.data.joint_pos[i].detach()
++            n = min(anc.shape[0], q.shape[0])
++            dist = float(torch.linalg.norm(q[:n] - anc[:n]))
++            thr = float(os.environ.get("VLA_REANCHOR_THR", "0.20"))
++            force = bool(os.environ.get("VLA_REANCHOR_FORCE"))   # DIAG: always re-anchor (isolate teleport effect)
++            if dist < thr and not force:
++                logger.info(f"[vla_live] re-anchor SKIP: pose in-band (dist {dist:.3f} < {thr})")
++                return
++            eid = torch.tensor([i], device=anc.device)
++            keep_vel = bool(os.environ.get("VLA_REANCHOR_NO_ZERO_VEL"))  # DIAG: preserve micro-sway velocity
++            jv = robot.data.joint_vel[i].detach().clone() if keep_vel else torch.zeros_like(robot.data.joint_vel[i])
++            robot.write_joint_state_to_sim(anc.unsqueeze(0), jv.unsqueeze(0), env_ids=eid)
++            root = getattr(self, "_anchor_root", None)
++            if root is not None:
++                root = root.clone()
++                if not keep_vel:
++                    root[7:] = 0.0                            # zero lin+ang velocity for a static stand
++                robot.write_root_state_to_sim(root.unsqueeze(0), env_ids=eid)
++            self._chunk = None; self._chunk_pos = 10**9      # force a fresh query from the restored pose
++            logger.info(f"[vla_live] RE-ANCHOR -> clean in-dist stand (dist {dist:.3f}, thr {thr}, "
++                        f"force={force}, keep_vel={keep_vel}) before '{new_prompt}'")
++        except Exception as exc:  # noqa: BLE001
++            logger.warning(f"[vla_live] re-anchor failed: {exc!r}")
++
 +    # --- build the GR00T observation from the live env ------------------
-+    def _build_obs(self) -> dict:
++    def _build_obs(self, prompt: str | None = None) -> dict:
 +        from gear_sonic.utils.data_collection.transforms import compute_projected_gravity
 +
 +        i = self.env_index
@@ -404,18 +492,47 @@ index 0000000..0dadc3a
 +        return {
 +            "video": {"ego_view": rgb[None, None]},                       # (1,1,480,640,3) u8
 +            "state": state,                                              # each (1,1,d) f32
-+            "language": {"annotation.human.task_description": [[self.prompt]]},
++            "language": {"annotation.human.task_description":
++                         [[self.prompt if prompt is None else prompt]]},
 +        }
 +
-+    def _query(self) -> None:
-+        obs = self._build_obs()
-+        action = self._client.get_action(obs)
++    @staticmethod
++    def _chunk_from_action(action) -> np.ndarray:
++        """Extract a (horizon, 64) continuous motion_token chunk from a server reply."""
 +        mt = action.get("action.motion_token", action.get("motion_token"))
 +        mt = np.asarray(mt, dtype=np.float32)
 +        if mt.ndim == 3:        # (batch, horizon, 64)
 +            mt = mt[0]
-+        self._chunk = mt.reshape(mt.shape[0], -1)                        # (horizon, 64)
++        return mt.reshape(mt.shape[0], -1)                              # (horizon, 64)
++
++    def _query(self) -> None:
++        obs = self._build_obs()
++        chunk = self._chunk_from_action(self._client.get_action(obs))   # cond (prompt)
++        # Classifier-free guidance: amplify the prompt's pull on the CONTINUOUS token
++        # (pre-FSQ-snap). out = uncond + s*(cond - uncond). The null branch ("" prompt)
++        # was trained via prompt-dropout, so uncond is a valid state-only prediction; the
++        # difference (cond - uncond) is what the prompt adds. Scaling it >1 lets a fragile
++        # onset (kick/jump/walk) win over the "hold" prior even from an OOD/drifted stand.
++        # Per-position: full scale on the onset, decay to 1 after, so sustained mid-chunk
++        # tokens aren't over-driven. VLA_CFG_SCALE=1 (default) is a no-op single-pass query.
++        cfg_s = float(os.environ.get("VLA_CFG_SCALE", "1") or "1")
++        cfg_log = ""
++        if cfg_s > 1.0 and not self._is_idle():
++            null_prompt = os.environ.get("VLA_CFG_NULL", "")
++            uncond = self._chunk_from_action(
++                self._client.get_action(self._build_obs(prompt=null_prompt)))
++            H = chunk.shape[0]
++            onset = min(int(os.environ.get("VLA_CFG_ONSET", "12")), H)
++            s = np.full(H, cfg_s, dtype=np.float32)
++            if os.environ.get("VLA_CFG_DECAY", "1") != "0" and H > onset:
++                s[onset:] = np.linspace(cfg_s, 1.0, H - onset, dtype=np.float32)
++            delta = chunk - uncond
++            chunk = uncond + s[:, None] * delta
++            cfg_log = (f" CFG s={cfg_s:.1f} onset={onset} "
++                       f"|cond-uncond|={float(np.linalg.norm(delta) / H):.3f}")
++        self._chunk = chunk
 +        self._chunk_pos = 0
++        self._cfg_log = cfg_log
 +        # DEBUG: dump obs+token on the first query so we can compare live tokens vs the
 +        # offline dump (diagnoses whether the LIVE obs makes GR00T emit a neutral token).
 +        if os.environ.get("VLA_LIVE_DEBUG") and self._n_query == 0:
@@ -439,7 +556,8 @@ index 0000000..0dadc3a
 +            rx = getattr(self, "_root_x", float("nan")); ry = getattr(self, "_root_y", float("nan"))
 +            logger.info(f"[vla_live] query #{self._n_query}: chunk {self._chunk.shape} "
 +                        f"root=({rx:.2f},{ry:.2f},{z:.2f}) dpose={dpose:.3f} tok_std={self._chunk.std():.3f} "
-+                        f"prompt={self.prompt!r} {'(FALLEN?)' if z < 0.4 else ''}")
++                        f"prompt={self.prompt!r}{getattr(self, '_cfg_log', '')} "
++                        f"{'(FALLEN?)' if z < 0.4 else ''}")
 +
 +    # --- per-step: advance the timeline + refill the chunk when exhausted
 +    def eval_step(self, env, results) -> bool:
@@ -448,6 +566,29 @@ index 0000000..0dadc3a
 +            self._client = _Gr00tWireClient(self.host, self.port)
 +            assert self._client.ping(), f"[vla_live] GR00T server not reachable at {self.host}:{self.port}"
 +            logger.info(f"[vla_live] connected to GR00T server {self.host}:{self.port}")
++
++        # DIAG (Phase-1 "true exact-reset" test, gated by VLA_RESET_POSE_NPZ=<npz with joint_pos>):
++        # physically write the robot to a real pre-kick / mid-swing pose (Isaac 29-joint order) ONCE
++        # at the start, then let the bootstrap=0 live policy generate from there. Tests whether the
++        # freeze is "can't INITIATE from standing" (sustains from a kickable pose) vs "can't sustain
++        # at all". The env reset is a fixed standing pose regardless of motion, so this is the only
++        # way to start the policy from an in-motion proprio.
++        rp = os.environ.get("VLA_RESET_POSE_NPZ")
++        if rp and not getattr(self, "_pose_written", False) and self._global_t <= 1:
++            try:
++                import torch
++                robot = self._scene["robot"]; i = self.env_index
++                tgt = np.load(rp)["joint_pos"].astype(np.float32)
++                q = robot.data.joint_pos[i].detach().clone()
++                n = min(len(tgt), q.shape[0])
++                q[:n] = torch.as_tensor(tgt[:n], device=q.device, dtype=q.dtype)
++                v = torch.zeros_like(robot.data.joint_vel[i])
++                eid = torch.tensor([i], device=q.device)
++                robot.write_joint_state_to_sim(q.unsqueeze(0), v.unsqueeze(0), env_ids=eid)
++                self._pose_written = True
++                logger.info(f"[vla_live] DIAG reset-pose written from {rp} (n={n})")
++            except Exception as exc:  # noqa: BLE001
++                logger.warning(f"[vla_live] reset-pose write failed: {exc!r}")
 +
 +        # episode reset -> restart the timeline so playback re-anchors from the start.
 +        try:
@@ -474,6 +615,7 @@ index 0000000..0dadc3a
 +            self._seg_idx = idx
 +            if not pf:                      # timeline owns prompt only when not externally controlled
 +                self.prompt = seg["prompt"]
++                self._maybe_reanchor(self.prompt)   # restore clean stand if drifted (VLA_REANCHOR)
 +            self._chunk = None
 +            self._chunk_pos = 10**9
 +            logger.info(
@@ -491,9 +633,42 @@ index 0000000..0dadc3a
 +                    self.prompt = want
 +                    self._chunk = None
 +                    self._chunk_pos = 10**9
++                    self._maybe_reanchor(want)      # restore clean stand if drifted (VLA_REANCHOR)
 +                    logger.info(f"[vla_live] >>> external prompt switch @ {self._global_t}: {want!r}")
 +            except FileNotFoundError:
 +                pass
++
++        # Re-anchor: snapshot a clean in-dist stand each step (gated by VLA_REANCHOR) so a later
++        # drifted switch to kick/jump/walk can write it back instead of freezing on OOD proprio.
++        self._capture_anchor()
++
++        # Phase-0 WBC-isolation trace (gated by VLA_DIAG_TRACE=<out.npz>): record per-step
++        # kinematics every control step — even during pure GT-token replay (no _query) — so the
++        # rollout can be scored OFFLINE (swing-foot peak height, root z/xy, joint trajectory)
++        # without a human watching the viewer. Answers "did the WBC actually produce the kick?".
++        tp = os.environ.get("VLA_DIAG_TRACE")
++        if tp:
++            try:
++                robot = self._scene["robot"]
++                i = self.env_index
++                if not hasattr(self, "_trace"):
++                    self._trace = {"t": [], "lt": [], "seg": [], "root": [], "joints": [], "bodyz": []}
++                    self._trace_names = [str(n) for n in getattr(robot, "body_names", [])]
++                    logger.info(f"[vla_live][TRACE] -> {tp}  body_names={self._trace_names}")
++                self._trace["t"].append(int(self._global_t))
++                self._trace["lt"].append(int(lt))
++                self._trace["seg"].append(int(idx))
++                self._trace["root"].append(robot.data.root_pos_w[i].detach().cpu().numpy().copy())
++                self._trace["joints"].append(robot.data.joint_pos[i].detach().cpu().numpy().copy())
++                self._trace["bodyz"].append(robot.data.body_pos_w[i, :, 2].detach().cpu().numpy().copy())
++                if self._global_t % 50 == 0:
++                    np.savez(tp,
++                             t=np.array(self._trace["t"]), lt=np.array(self._trace["lt"]),
++                             seg=np.array(self._trace["seg"]), root=np.array(self._trace["root"]),
++                             joints=np.array(self._trace["joints"]), bodyz=np.array(self._trace["bodyz"]),
++                             body_names=np.array(self._trace_names))
++            except Exception as exc:  # noqa: BLE001
++                logger.warning(f"[vla_live][TRACE] {exc!r}")
 +
 +        # DIAGNOSE the "flash to origin": log robot root every 50 steps regardless of segment, so
 +        # walk segments (which don't query) are covered. A sudden jump to ~(0,0) = a teleport.

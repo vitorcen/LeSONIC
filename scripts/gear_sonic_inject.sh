@@ -36,7 +36,11 @@ declare -A KEY=(
 )
 SEL="${1:-${MOTION:-kick}}"
 k="${KEY[$SEL]:-}"; [[ -z "$k" ]] && { echo "[inject] unknown motion '$SEL' (dance|lunge|macarena|kick|squat|jump|walk)"; exit 2; }
-NPZ="$PRED_DIR/$k.npz"
+# INJECT_NPZ=<path>: play an ARBITRARY token npz (e.g. a [source->target] transition sample) instead
+# of the default predicted-token file. SEL still selects the green reference skeleton (= target motion).
+# A relative INJECT_NPZ is resolved against REPO_ROOT so it survives the cd into WBC_DIR below.
+NPZ="${INJECT_NPZ:-$PRED_DIR/$k.npz}"
+[[ "$NPZ" = /* ]] || NPZ="$REPO_ROOT/$NPZ"
 [[ -f "$NPZ" ]] || { echo "[inject] $NPZ missing — run scripts/gr00t_dump_pred_tokens.py first"; exit 1; }
 
 cd "$WBC_DIR"
@@ -78,6 +82,7 @@ conda run --no-capture-output -n "$ENV_NAME" python gear_sonic/eval_agent_trl.py
     "${RELAX_ARGS[@]}" \
     "++eval_callbacks=[vla_injector]" \
     "++callbacks.vla_injector._target_=gear_sonic.data.vla_token_injector.VlaTokenInjector" \
-    "++callbacks.vla_injector.token_npz=$NPZ"
+    "++callbacks.vla_injector.token_npz=$NPZ" \
+    "++callbacks.vla_injector.loop=${INJECT_LOOP:-True}"
 
 echo "[inject] viewer closed."
